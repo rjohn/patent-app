@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Search, Loader2, AlertCircle, CheckCircle2, Pencil, X, Save,
   DollarSign, RefreshCw, Check, ChevronDown, ChevronUp,
-  AlertTriangle, Wifi, WifiOff, RotateCcw, Zap, ArrowLeft
+  AlertTriangle, Wifi, WifiOff, RotateCcw, Zap, ArrowLeft,
+  GitBranch, ChevronRight, ExternalLink
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -407,10 +408,295 @@ function RefreshPanel({ patents, onComplete }: { patents: Patent[]; onComplete: 
   )}
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-import React from 'react'
+// ── Continuity Tree ───────────────────────────────────────────────────────────
 
+interface TreePatent {
+  id: string
+  patentNumber: string | null
+  applicationNumber: string | null
+  title: string
+  status: string
+  type: string
+  jurisdiction: string | null
+  filingDate: string | null
+  grantDate: string | null
+  continuationType: string | null
+  parentPatentId: string | null
+  family: { id: string; name: string } | null
+  children?: TreePatent[]
+}
+
+const CONT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  CONTINUATION:        { label: 'CON',  color: '#60a5fa' },
+  CONTINUATION_IN_PART:{ label: 'CIP',  color: '#a78bfa' },
+  DIVISIONAL:          { label: 'DIV',  color: '#34d399' },
+  REISSUE:             { label: 'REI',  color: '#fbbf24' },
+  REEXAMINATION:       { label: 'REX',  color: '#fb923c' },
+}
+
+function buildTrees(patents: TreePatent[]): TreePatent[] {
+  const byId = new Map(patents.map(p => [p.id, { ...p, children: [] as TreePatent[] }]))
+  const roots: TreePatent[] = []
+  for (const p of byId.values()) {
+    if (p.parentPatentId && byId.has(p.parentPatentId)) {
+      byId.get(p.parentPatentId)!.children!.push(p)
+    } else {
+      roots.push(p)
+    }
+  }
+  // Sort children by filing date
+  const sortChildren = (node: TreePatent) => {
+    node.children?.sort((a, b) => (a.filingDate || '').localeCompare(b.filingDate || ''))
+    node.children?.forEach(sortChildren)
+  }
+  roots.forEach(sortChildren)
+  // Only return roots that have at least one child (or any patent with no parent that has continuations)
+  return roots.sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+}
+
+function TreeNode({ node, depth = 0, isLast = false }: { node: TreePatent; depth?: number; isLast?: boolean }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const hasChildren = (node.children?.length ?? 0) > 0
+  const ct = node.continuationType ? CONT_TYPE_LABELS[node.continuationType] : null
+  const isGranted = node.status === 'GRANTED'
+  const isAbandoned = node.status === 'ABANDONED' || node.status === 'EXPIRED'
+
+  const statusColor = isGranted ? '#4ade80' : isAbandoned ? '#f87171' :
+    node.status === 'PENDING' ? '#facc15' : node.status === 'PUBLISHED' ? '#60a5fa' : '#94a3b8'
+
+  const displayNum = node.jurisdiction === 'EP'
+    ? `EP${node.applicationNumber || ''}`
+    : node.patentNumber || node.applicationNumber || '—'
+
+  return (
+    <div className="select-none">
+      <div className="flex items-start group"
+        style={{ paddingLeft: depth * 28 }}>
+
+        {/* Tree connector lines */}
+        {depth > 0 && (
+          <div className="flex-shrink-0 w-7 flex flex-col items-center relative" style={{ marginLeft: -28 }}>
+            <div className="absolute left-3 top-0 w-px"
+              style={{ height: isLast ? '50%' : '100%', background: 'rgba(74,144,217,0.2)' }} />
+            <div className="absolute left-3 top-1/2 w-3 h-px -translate-y-1/2"
+              style={{ background: 'rgba(74,144,217,0.2)' }} />
+          </div>
+        )}
+
+        {/* Expand/collapse toggle */}
+        <div className="flex-shrink-0 w-5 mt-2.5 mr-1">
+          {hasChildren ? (
+            <button onClick={() => setCollapsed(c => !c)}
+              className="w-4 h-4 rounded flex items-center justify-center transition-colors hover:bg-white/10"
+              style={{ color: 'var(--patent-sky)' }}>
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+            </button>
+          ) : (
+            <div className="w-4 h-4 flex items-center justify-center">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'rgba(148,163,184,0.3)' }} />
+            </div>
+          )}
+        </div>
+
+        {/* Node card */}
+        <div className="flex-1 flex items-center gap-2.5 py-2 px-3 mb-1 rounded-lg min-w-0 transition-colors group-hover:bg-white/[0.03]"
+          style={{ border: '1px solid transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)')}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = 'transparent')}>
+
+          {/* Continuation type badge */}
+          {ct ? (
+            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+              style={{ background: ct.color + '18', color: ct.color, border: `1px solid ${ct.color}33` }}>
+              {ct.label}
+            </span>
+          ) : depth === 0 ? (
+            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+              style={{ background: 'rgba(148,163,184,0.1)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.2)' }}>
+              ROOT
+            </span>
+          ) : (
+            <span className="w-9 flex-shrink-0" />
+          )}
+
+          {/* Patent number */}
+          <span className="font-mono text-xs flex-shrink-0 w-24"
+            style={{ color: 'var(--patent-sky)' }}>
+            {displayNum}
+          </span>
+
+          {/* Status dot */}
+          <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusColor }} />
+
+          {/* Title */}
+          <span className="text-sm truncate flex-1 min-w-0" style={{ color: 'rgba(255,255,255,0.82)' }}
+            title={node.title}>
+            {node.title}
+          </span>
+
+          {/* Type chip */}
+          <span className="text-[10px] text-patent-muted flex-shrink-0 hidden group-hover:inline">
+            {node.type}
+          </span>
+
+          {/* Filing year */}
+          <span className="text-xs text-patent-muted flex-shrink-0 w-10 text-right">
+            {node.filingDate?.slice(0, 4) || '—'}
+          </span>
+
+          {/* Status label */}
+          <span className="text-[10px] font-semibold flex-shrink-0 w-20 text-right"
+            style={{ color: statusColor }}>
+            {node.status}
+          </span>
+
+          {/* Link */}
+          <Link href={`/patents/${node.id}`}
+            className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/10"
+            style={{ color: 'var(--patent-sky)' }}
+            title="Open patent">
+            <ExternalLink className="w-3 h-3" />
+          </Link>
+        </div>
+      </div>
+
+      {/* Children */}
+      {!collapsed && hasChildren && (
+        <div>
+          {node.children!.map((child, i) => (
+            <TreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              isLast={i === node.children!.length - 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ContinuityTreeTab() {
+  const [patents, setPatents]   = useState<TreePatent[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
+  const [search, setSearch]     = useState('')
+  const [expandAll, setExpandAll] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/patents?pageSize=500&fields=tree')
+      .then(r => r.json())
+      .then(d => setPatents(d.patents || []))
+      .catch(() => setError('Failed to load patents'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const trees = buildTrees(patents)
+
+  // Filter trees: show a root if it or any descendant matches search
+  function patentMatchesSearch(p: TreePatent, q: string): boolean {
+    const lq = q.toLowerCase()
+    if (p.title.toLowerCase().includes(lq)) return true
+    if ((p.patentNumber || '').includes(q)) return true
+    if ((p.applicationNumber || '').includes(q)) return true
+    return p.children?.some(c => patentMatchesSearch(c, q)) ?? false
+  }
+
+  const visibleTrees = search
+    ? trees.filter(t => patentMatchesSearch(t, search))
+    : trees
+
+  // Stats
+  const totalWithRelations = patents.filter(p => p.parentPatentId || (patents.some(q => q.parentPatentId === p.id))).length
+  const orphans = patents.filter(p => !p.parentPatentId && !patents.some(q => q.parentPatentId === p.id)).length
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-24">
+      <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--patent-sky)' }} />
+    </div>
+  )
+
+  if (error) return (
+    <div className="card p-8 text-center">
+      <AlertCircle className="w-8 h-8 mx-auto mb-3 opacity-30" style={{ color: '#f87171' }} />
+      <p className="text-sm" style={{ color: '#f87171' }}>{error}</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-5">
+      {/* Stats row */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2 text-xs text-patent-muted">
+          <GitBranch className="w-3.5 h-3.5" />
+          <span><span className="text-white font-semibold">{trees.length}</span> root patent{trees.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="text-xs text-patent-muted">
+          <span className="text-white font-semibold">{totalWithRelations}</span> patents with continuation links
+        </div>
+        {orphans > 0 && (
+          <div className="text-xs text-patent-muted">
+            <span className="text-white font-semibold">{orphans}</span> standalone (no relations)
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {/* Legend */}
+          {Object.entries(CONT_TYPE_LABELS).map(([, v]) => (
+            <span key={v.label} className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+              style={{ background: v.color + '18', color: v.color, border: `1px solid ${v.color}33` }}>
+              {v.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-patent-muted" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Filter by title or number…"
+          className="input pl-9 w-full text-sm" />
+      </div>
+
+      {/* Trees */}
+      {visibleTrees.length === 0 ? (
+        <div className="card p-12 text-center">
+          <GitBranch className="w-8 h-8 mx-auto mb-3 opacity-20 text-patent-muted" />
+          <p className="text-sm text-patent-muted">
+            {patents.length === 0 ? 'No patents in portfolio yet' :
+             search ? 'No patents match your filter' :
+             'No continuation relationships found — refresh patents from USPTO to populate continuity links'}
+          </p>
+        </div>
+      ) : (
+        <div className="card p-5">
+          {/* Column headers */}
+          <div className="flex items-center gap-2.5 px-6 pb-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-patent-muted"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <span className="w-9 flex-shrink-0" />
+            <span className="w-24 flex-shrink-0">Number</span>
+            <span className="w-2 flex-shrink-0" />
+            <span className="flex-1">Title</span>
+            <span className="w-10 text-right">Filed</span>
+            <span className="w-20 text-right">Status</span>
+            <span className="w-8" />
+          </div>
+
+          <div className="space-y-0.5">
+            {visibleTrees.map(tree => (
+              <TreeNode key={tree.id} node={tree} depth={0} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function ManagePage() {
+  const [tab, setTab] = useState<'patents' | 'tree'>('patents')
   const [patents, setPatents]   = useState<Patent[]>([])
   const [families, setFamilies] = useState<Family[]>([])
   const [loading, setLoading]   = useState(true)
@@ -518,7 +804,30 @@ export default function ManagePage() {
         </div>
       </div>
 
-      {/* ── Refresh panel ─── */}
+      {/* ── Tab switcher ─── */}
+      <div className="flex items-center gap-1 p-1 rounded-lg w-fit mb-6"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <button onClick={() => setTab('patents')}
+          className="text-sm px-4 py-1.5 rounded-md transition-all font-medium flex items-center gap-2"
+          style={{
+            background: tab === 'patents' ? 'rgba(74,144,217,0.2)' : 'transparent',
+            color: tab === 'patents' ? 'var(--patent-sky)' : 'var(--patent-muted)',
+          }}>
+          <Search className="w-3.5 h-3.5" /> Patents
+        </button>
+        <button onClick={() => setTab('tree')}
+          className="text-sm px-4 py-1.5 rounded-md transition-all font-medium flex items-center gap-2"
+          style={{
+            background: tab === 'tree' ? 'rgba(74,144,217,0.2)' : 'transparent',
+            color: tab === 'tree' ? 'var(--patent-sky)' : 'var(--patent-muted)',
+          }}>
+          <GitBranch className="w-3.5 h-3.5" /> Continuity Tree
+        </button>
+      </div>
+
+      {tab === 'tree' && <ContinuityTreeTab />}
+
+      {tab === 'patents' && (<>
       <div className="card p-5 mb-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -666,6 +975,7 @@ export default function ManagePage() {
           </div>
         </div>
       )}
+    </>)}
     </div>
   )
 }

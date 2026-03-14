@@ -13,19 +13,41 @@ datasource db {
 // ─── Users & Auth ────────────────────────────────────────────────────────────
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  role      UserRole @default(VIEWER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  supabaseId String?  @unique
+  email      String   @unique
+  name       String?
+  role       UserRole @default(VIEWER)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
   patents   Patent[]
   notes     PatentNote[]
   uploads   DataUpload[]
+  sentNotifications      Notification[]           @relation("NotificationSender")
+  notificationRecipients NotificationRecipient[]
 
   @@map("users")
+}
+
+model Invite {
+  id        String       @id @default(cuid())
+  email     String       @unique
+  name      String?
+  role      UserRole     @default(VIEWER)
+  token     String       @unique @default(cuid())
+  status    InviteStatus @default(PENDING)
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+
+  @@map("invites")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
 }
 
 enum UserRole {
@@ -109,10 +131,15 @@ model Patent {
   notes             PatentNote[]
   documents         PatentDocument[]
   
+  // Source / tracking
+  source            PatentSource  @default(PORTFOLIO)
+
   // Raw data
   rawXmlData        String?       @db.Text
   rawJsonData       Json?
-  
+
+  notifications  Notification[]
+
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -143,6 +170,11 @@ enum ContinuationType {
   DIVISIONAL
   REISSUE
   REEXAMINATION
+}
+
+enum PatentSource {
+  PORTFOLIO       // Manually added to portfolio
+  CONTINUATION    // Added from continuity tab — application being tracked
 }
 
 // ─── Priority Claims ──────────────────────────────────────────────────────────
@@ -246,6 +278,16 @@ enum DocumentType {
   OTHER
 }
 
+// ─── Settings (key/value store) ───────────────────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
 // ─── Data Uploads ─────────────────────────────────────────────────────────────
 
 model DataUpload {
@@ -269,4 +311,37 @@ enum UploadStatus {
   COMPLETED
   FAILED
   PARTIAL
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id          String    @id @default(cuid())
+  title       String
+  message     String    @db.Text
+  patentId    String?
+  patent      Patent?   @relation(fields: [patentId], references: [id], onDelete: SetNull)
+  todoText    String?
+  todoDueDate DateTime?
+  createdById String?
+  createdBy   User?     @relation("NotificationSender", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  recipients  NotificationRecipient[]
+
+  @@map("notifications")
+}
+
+model NotificationRecipient {
+  id              String       @id @default(cuid())
+  notificationId  String
+  notification    Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  read            Boolean      @default(false)
+  readAt          DateTime?
+  todoCompleted   Boolean      @default(false)
+  todoCompletedAt DateTime?
+
+  @@unique([notificationId, userId])
+  @@map("notification_recipients")
 }

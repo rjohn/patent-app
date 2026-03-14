@@ -163,7 +163,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const patent = await prisma.patent.findUnique({
       where: { id },
-      select: { applicationNumber: true, patentNumber: true, abstract: true, claimsJson: true },
+      select: { applicationNumber: true, patentNumber: true, abstract: true, claimsJson: true, rawJsonData: true },
     })
     if (!patent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -174,6 +174,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         .filter(Boolean)
       return NextResponse.json({ abstract: patent.abstract, claims, source: 'stored' })
     }
+
+    // ── 1b. Abstract stored in rawJsonData from ODP refresh
+    const rawAbstract = (patent.rawJsonData as any)?.applicationMetaData?.abstractText || null
 
     // ── 2. EPO OPS (requires EPO_OPS_KEY + EPO_OPS_SECRET env vars)
     if (patent.patentNumber) {
@@ -203,14 +206,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    // ── 4. Return whatever is in DB
+    // ── 4. Return whatever is in DB (including rawJsonData abstract)
+    const fallbackAbstract = patent.abstract || rawAbstract || null
+    if (fallbackAbstract) {
+      // Save it back to the abstract field for next time
+      if (!patent.abstract && rawAbstract) {
+        await prisma.patent.update({ where: { id }, data: { abstract: rawAbstract } }).catch(() => {})
+      }
+    }
     return NextResponse.json({
-      abstract: patent.abstract || null,
+      abstract: fallbackAbstract,
       claims: [],
-      source: patent.abstract ? 'stored' : null,
-      message: !process.env.EPO_OPS_KEY
-        ? 'Add EPO_OPS_KEY + EPO_OPS_SECRET to .env.local for reliable abstract/claims retrieval'
-        : 'Abstract and claims not available for this patent',
+      source: fallbackAbstract ? 'stored' : null,
+      message: !fallbackAbstract
+        ? (!process.env.EPO_OPS_KEY
+            ? 'Add EPO_OPS_KEY + EPO_OPS_SECRET to .env.local for claims retrieval'
+            : 'Claims text not available for this patent')
+        : null,
     })
 
   } catch (e) {

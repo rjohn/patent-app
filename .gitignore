@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# environment variables — NEVER commit these
+.env
+.env.local
+.env*.local
+
+# Next.js build output
+.next/
+out/
+
+# Prisma generated client (regenerated on deploy)
+node_modules/.prisma/
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*

@@ -29,8 +29,6 @@ interface ApiResponse {
   pageSize: number
 }
 
-
-// Flag emojis for common patent jurisdictions
 const JURISDICTION_FLAGS: Record<string, { flag: string; label: string }> = {
   US: { flag: '🇺🇸', label: 'United States' },
   EP: { flag: '🇪🇺', label: 'European Patent' },
@@ -75,9 +73,7 @@ function DeleteModal({ patent, onConfirm, onCancel, deleting }: {
           <h2 className="font-semibold text-white">Remove Patent</h2>
           <button onClick={onCancel} className="btn-ghost p-1"><X className="w-4 h-4" /></button>
         </div>
-        <p className="text-sm text-patent-muted mb-2">
-          Are you sure you want to remove this patent from your portfolio?
-        </p>
+        <p className="text-sm text-patent-muted mb-2">Are you sure you want to remove this patent from your portfolio?</p>
         <div className="rounded-lg p-3 mb-5" style={{ background: 'rgba(255,255,255,0.05)' }}>
           <p className="font-mono text-xs" style={{ color: 'var(--patent-sky)' }}>
             {patent.patentNumber || patent.applicationNumber || '—'}
@@ -101,31 +97,33 @@ function DeleteModal({ patent, onConfirm, onCancel, deleting }: {
   )
 }
 
-const STATUS_OPTIONS = ['ALL', 'GRANTED', 'PENDING', 'ABANDONED', 'EXPIRED', 'PUBLISHED']
-const TYPE_OPTIONS   = ['ALL', 'UTILITY', 'DESIGN', 'PLANT', 'PROVISIONAL', 'PCT']
+const STATUS_OPTIONS      = ['ALL', 'GRANTED', 'PENDING', 'ABANDONED', 'EXPIRED', 'PUBLISHED']
+const TYPE_OPTIONS        = ['ALL', 'UTILITY', 'DESIGN', 'PLANT', 'PROVISIONAL', 'PCT']
+const JURISDICTION_OPTIONS = ['ALL', 'US', 'EP', 'GB', 'DE', 'FR', 'JP', 'CN', 'KR', 'CA', 'AU', 'IN']
 
 export default function PatentsPage() {
-  const [patents, setPatents]       = useState<Patent[]>([])
-  const [total, setTotal]           = useState(0)
-  const [page, setPage]             = useState(1)
-  const [loading, setLoading]       = useState(true)
-  const [error, setError]           = useState<string | null>(null)
+  const [patents, setPatents]   = useState<Patent[]>([])
+  const [total, setTotal]       = useState(0)
+  const [page, setPage]         = useState(1)
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
 
-  const [search, setSearch]         = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [statusFilter, setStatus]   = useState('ALL')
-  const [typeFilter, setType]       = useState('ALL')
-  const [showFilters, setShowFilters] = useState(false)
-  const [sortBy, setSortBy]         = useState('filingDate')
-  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc')
+  const [search, setSearch]               = useState('')
+  const [debouncedSearch, setDebounced]   = useState('')
+  const [statusFilter, setStatus]         = useState('ALL')
+  const [typeFilter, setType]             = useState('ALL')
+  const [jurisdictionFilter, setJurisdiction] = useState('ALL')
+  const [showFilters, setShowFilters]     = useState(false)
+  const [sortBy, setSortBy]               = useState('filingDate')
+  const [sortDir, setSortDir]             = useState<'asc' | 'desc'>('desc')
 
-  const [deleteTarget, setDeleteTarget] = useState<Patent | null>(null)
-  const [deleting, setDeleting]         = useState(false)
+  const [deleteTarget, setDeleteTarget]   = useState<Patent | null>(null)
+  const [deleting, setDeleting]           = useState(false)
 
   const PAGE_SIZE = 25
 
   useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
+    const t = setTimeout(() => { setDebounced(search); setPage(1) }, 350)
     return () => clearTimeout(t)
   }, [search])
 
@@ -134,11 +132,12 @@ export default function PatentsPage() {
     try {
       const params = new URLSearchParams({
         page: String(page), pageSize: String(PAGE_SIZE), sortBy, sortDir,
-        ...(debouncedSearch        && { q:      debouncedSearch }),
-        ...(statusFilter !== 'ALL' && { status: statusFilter }),
-        ...(typeFilter   !== 'ALL' && { type:   typeFilter }),
+        ...(debouncedSearch             && { q:            debouncedSearch }),
+        ...(statusFilter !== 'ALL'      && { status:       statusFilter }),
+        ...(typeFilter !== 'ALL'        && { type:         typeFilter }),
+        ...(jurisdictionFilter !== 'ALL' && { jurisdiction: jurisdictionFilter }),
       })
-      const res  = await fetch(`/api/patents?${params}`)
+      const res = await fetch(`/api/patents?${params}`)
       if (!res.ok) throw new Error(`API error ${res.status}`)
       const data: ApiResponse = await res.json()
       setPatents(data.patents)
@@ -148,7 +147,7 @@ export default function PatentsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, debouncedSearch, statusFilter, typeFilter, sortBy, sortDir])
+  }, [page, debouncedSearch, statusFilter, typeFilter, jurisdictionFilter, sortBy, sortDir])
 
   useEffect(() => { fetchPatents() }, [fetchPatents])
 
@@ -173,18 +172,17 @@ export default function PatentsPage() {
     setPage(1)
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
-  const hasFilters = statusFilter !== 'ALL' || typeFilter !== 'ALL' || debouncedSearch
+  const clearFilters = () => { setSearch(''); setStatus('ALL'); setType('ALL'); setJurisdiction('ALL') }
+
+  const totalPages  = Math.ceil(total / PAGE_SIZE)
+  const activeFilters = statusFilter !== 'ALL' || typeFilter !== 'ALL' || jurisdictionFilter !== 'ALL'
+  const hasFilters  = activeFilters || !!debouncedSearch
 
   return (
     <div className="p-8 animate-fade-in">
       {deleteTarget && (
-        <DeleteModal
-          patent={deleteTarget}
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          deleting={deleting}
-        />
+        <DeleteModal patent={deleteTarget} onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)} deleting={deleting} />
       )}
 
       <div className="flex items-start justify-between mb-8">
@@ -197,7 +195,7 @@ export default function PatentsPage() {
         <Link href="/lookup" className="btn-primary text-sm">+ Add Patent</Link>
       </div>
 
-      {/* Search & Filter */}
+      {/* Search & Filters */}
       <div className="card p-4 mb-6">
         <div className="flex items-center gap-3">
           <div className="flex-1 relative">
@@ -208,25 +206,83 @@ export default function PatentsPage() {
           <button onClick={() => setShowFilters(v => !v)}
             className={`btn-secondary flex items-center gap-2 text-sm ${showFilters ? 'border-patent-sky/50' : ''}`}>
             <SlidersHorizontal className="w-4 h-4" /> Filters
-            {(statusFilter !== 'ALL' || typeFilter !== 'ALL') && (
-              <span className="w-2 h-2 rounded-full" style={{ background: 'var(--patent-sky)' }} />
-            )}
+            {activeFilters && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: 'var(--patent-sky)' }} />}
           </button>
         </div>
+
         {showFilters && (
-          <div className="grid grid-cols-2 gap-4 mt-4 pt-4 animate-slide-up" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <div className="grid grid-cols-3 gap-4 mt-4 pt-4 animate-slide-up"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            {/* Country / Jurisdiction */}
+            <div>
+              <label className="label mb-1.5 block">Country</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {JURISDICTION_OPTIONS.map(j => {
+                  const info = j === 'ALL' ? null : JURISDICTION_FLAGS[j]
+                  const active = jurisdictionFilter === j
+                  return (
+                    <button key={j} onClick={() => { setJurisdiction(j); setPage(1) }}
+                      className="text-xs px-2 py-1.5 rounded-md transition-colors flex items-center gap-1 justify-center"
+                      style={{
+                        background: active ? 'rgba(74,144,217,0.2)' : 'rgba(255,255,255,0.05)',
+                        color: active ? 'var(--patent-sky)' : 'var(--patent-muted)',
+                        border: `1px solid ${active ? 'rgba(74,144,217,0.4)' : 'transparent'}`,
+                      }}>
+                      {info && <span className="text-sm leading-none">{info.flag}</span>}
+                      {j}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            {/* Status */}
             <div>
               <label className="label mb-1.5 block">Status</label>
-              <select value={statusFilter} onChange={e => { setStatus(e.target.value); setPage(1) }} className="input w-full">
-                {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-              </select>
+              <div className="flex flex-col gap-1.5">
+                {STATUS_OPTIONS.map(s => {
+                  const active = statusFilter === s
+                  return (
+                    <button key={s} onClick={() => { setStatus(s); setPage(1) }}
+                      className="text-xs px-3 py-1.5 rounded-md transition-colors text-left"
+                      style={{
+                        background: active ? 'rgba(74,144,217,0.2)' : 'rgba(255,255,255,0.05)',
+                        color: active ? 'var(--patent-sky)' : 'var(--patent-muted)',
+                        border: `1px solid ${active ? 'rgba(74,144,217,0.4)' : 'transparent'}`,
+                      }}>
+                      {s}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
+            {/* Type */}
             <div>
               <label className="label mb-1.5 block">Type</label>
-              <select value={typeFilter} onChange={e => { setType(e.target.value); setPage(1) }} className="input w-full">
-                {TYPE_OPTIONS.map(t => <option key={t}>{t}</option>)}
-              </select>
+              <div className="flex flex-col gap-1.5">
+                {TYPE_OPTIONS.map(t => {
+                  const active = typeFilter === t
+                  return (
+                    <button key={t} onClick={() => { setType(t); setPage(1) }}
+                      className="text-xs px-3 py-1.5 rounded-md transition-colors text-left"
+                      style={{
+                        background: active ? 'rgba(74,144,217,0.2)' : 'rgba(255,255,255,0.05)',
+                        color: active ? 'var(--patent-sky)' : 'var(--patent-muted)',
+                        border: `1px solid ${active ? 'rgba(74,144,217,0.4)' : 'transparent'}`,
+                      }}>
+                      {t}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
+
+            {activeFilters && (
+              <div className="col-span-3 flex justify-end">
+                <button onClick={clearFilters} className="btn-ghost text-xs flex items-center gap-1.5">
+                  <X className="w-3 h-3" /> Clear all filters
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -240,13 +296,16 @@ export default function PatentsPage() {
         </p>
         <div className="flex items-center gap-2 text-xs text-patent-muted">
           Sort by:
-          {([['patentNumber','Number'],['title','Title'],['filingDate','Filed'],['grantDate','Granted']] as const).map(([col, label]) => (
-            <button key={col} onClick={() => toggleSort(col)}
-              className={`flex items-center gap-0.5 hover:text-white transition-colors ${sortBy === col ? 'text-patent-sky' : ''}`}>
-              {label}
-              {sortBy === col && <ChevronDown className={`w-3 h-3 transition-transform ${sortDir === 'asc' ? 'rotate-180' : ''}`} />}
-            </button>
-          ))}
+          {(['patentNumber', 'title', 'filingDate', 'grantDate'] as const).map(col => {
+            const label = { patentNumber: 'Number', title: 'Title', filingDate: 'Filed', grantDate: 'Granted' }[col]
+            return (
+              <button key={col} onClick={() => toggleSort(col)}
+                className={`flex items-center gap-0.5 hover:text-white transition-colors ${sortBy === col ? 'text-patent-sky' : ''}`}>
+                {label}
+                {sortBy === col && <ChevronDown className={`w-3 h-3 transition-transform ${sortDir === 'asc' ? 'rotate-180' : ''}`} />}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -268,8 +327,8 @@ export default function PatentsPage() {
             <FileText className="w-10 h-10 mx-auto mb-3 text-patent-muted opacity-40" />
             {hasFilters ? (
               <>
-                <p className="text-patent-muted mb-2">No patents match your search</p>
-                <button onClick={() => { setSearch(''); setStatus('ALL'); setType('ALL') }} className="btn-ghost text-sm">Clear filters</button>
+                <p className="text-patent-muted mb-2">No patents match your filters</p>
+                <button onClick={clearFilters} className="btn-ghost text-sm">Clear filters</button>
               </>
             ) : (
               <>
@@ -282,28 +341,41 @@ export default function PatentsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Patent / App No.</th><th>Title</th><th>Country</th><th>Family</th>
-                <th>Inventors</th><th>Filed</th><th>Granted</th><th>Status</th><th></th>
+                <th>Patent / App No.</th>
+                <th>Country</th>
+                <th>Title</th>
+                <th>Family</th>
+                <th>Inventors</th>
+                <th>Filed</th>
+                <th>Granted</th>
+                <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {patents.map(p => (
                 <tr key={p.id} className="group cursor-pointer" style={{ opacity: loading ? 0.5 : 1, transition: 'opacity 0.15s' }}>
+                  {/* Patent / App No. */}
                   <td>
-                    <div className="mono text-xs leading-tight">
+                    <div className="font-mono text-xs leading-tight" style={{ color: 'var(--patent-sky)' }}>
                       {p.jurisdiction === 'EP'
                         ? (p.epNumber ? `EP${p.epNumber}` : p.publicationNumber || '—')
                         : (p.patentNumber || p.applicationNumber || '—')}
                     </div>
                     {p.jurisdiction !== 'EP' && p.patentNumber && p.applicationNumber && (
-                      <div className="text-[10px] mt-0.5" style={{ color: 'var(--patent-muted)' }}>{p.applicationNumber}</div>
+                      <div className="text-[10px] mt-0.5 font-mono" style={{ color: 'var(--patent-muted)' }}>
+                        {p.applicationNumber}
+                      </div>
                     )}
                   </td>
+                  {/* Country */}
                   <td>
                     <JurisdictionBadge jurisdiction={p.jurisdiction} />
                   </td>
+                  {/* Title */}
                   <td className="max-w-xs">
-                    <Link href={`/patents/${p.id}`} className="text-white hover:text-patent-sky transition-colors font-medium line-clamp-2 text-sm">
+                    <Link href={`/patents/${p.id}`}
+                      className="text-white hover:text-patent-sky transition-colors font-medium line-clamp-2 text-sm">
                       {p.title}
                     </Link>
                     {p.cpcCodes.length > 0 && (
@@ -315,30 +387,35 @@ export default function PatentsPage() {
                       </div>
                     )}
                   </td>
+                  {/* Family */}
                   <td>
                     {p.family
                       ? <Link href={`/families/${p.family.id}`} className="text-xs px-2 py-1 rounded transition-colors"
                           style={{ background: 'rgba(45,90,158,0.2)', color: 'var(--patent-sky)' }}>{p.family.name}</Link>
                       : <span className="text-xs" style={{ color: 'var(--patent-muted)' }}>—</span>}
                   </td>
+                  {/* Inventors */}
                   <td className="text-xs max-w-[140px]" style={{ color: 'var(--patent-muted)' }}>
                     {p.inventors.slice(0, 2).join(', ')}{p.inventors.length > 2 ? ` +${p.inventors.length - 2}` : ''}
                   </td>
-                  <td className="text-xs whitespace-nowrap" style={{ color: 'var(--patent-muted)' }}>
+                  {/* Filed */}
+                  <td className="text-xs whitespace-nowrap font-mono" style={{ color: 'var(--patent-muted)' }}>
                     {p.filingDate ? p.filingDate.slice(0, 10) : '—'}
                   </td>
-                  <td className="text-xs whitespace-nowrap" style={{ color: 'var(--patent-muted)' }}>
+                  {/* Granted */}
+                  <td className="text-xs whitespace-nowrap font-mono" style={{ color: 'var(--patent-muted)' }}>
                     {p.grantDate ? p.grantDate.slice(0, 10) : '—'}
                   </td>
+                  {/* Status */}
                   <td><StatusBadge status={p.status} /></td>
+                  {/* Actions */}
                   <td>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Link href={`/patents/${p.id}`} className="btn-ghost p-1.5">
                         <ExternalLink className="w-3.5 h-3.5" />
                       </Link>
                       <button onClick={() => setDeleteTarget(p)} className="btn-ghost p-1.5"
-                        style={{ color: 'rgba(239,68,68,0.6)' }}
-                        title="Remove from portfolio">
+                        style={{ color: 'rgba(239,68,68,0.6)' }} title="Remove from portfolio">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -356,9 +433,11 @@ export default function PatentsPage() {
             Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
           </p>
           <div className="flex items-center gap-2">
-            <button onClick={() => setPage(p => p - 1)} disabled={page === 1} className="btn-ghost text-sm" style={{ opacity: page === 1 ? 0.4 : 1 }}>← Prev</button>
+            <button onClick={() => setPage(p => p - 1)} disabled={page === 1} className="btn-ghost text-sm"
+              style={{ opacity: page === 1 ? 0.4 : 1 }}>← Prev</button>
             <span className="text-xs text-patent-muted">Page {page} of {totalPages}</span>
-            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages} className="btn-ghost text-sm" style={{ opacity: page >= totalPages ? 0.4 : 1 }}>Next →</button>
+            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages} className="btn-ghost text-sm"
+              style={{ opacity: page >= totalPages ? 0.4 : 1 }}>Next →</button>
           </div>
         </div>
       )}

@@ -13,6 +13,11 @@
   --patent-cream:  #FDF8EE;
   --patent-slate:  #6B7A99;
   --patent-muted:  #A8B5CC;
+  /* Plaz4 brand — pulled from icon */
+  --p4-blue:       #1A5BC5;
+  --p4-purple:     #5B2D9E;
+  --p4-btn-from:   #1E64D4;
+  --p4-btn-to:     #6333AE;
 }
 
 @layer base {
@@ -28,7 +33,7 @@
     color: white;
   }
 
-  ::selection { background-color: var(--patent-gold); color: var(--patent-navy); }
+  ::selection { background-color: var(--p4-purple); color: #fff; }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
@@ -61,14 +66,19 @@
   /* ── Buttons ── */
   .btn-primary {
     display: inline-flex; align-items: center; gap: 0.375rem;
-    background-color: var(--patent-gold);
-    color: var(--patent-navy);
+    background: linear-gradient(135deg, var(--p4-btn-from) 0%, var(--p4-btn-to) 100%);
+    color: #fff;
     font-weight: 600; padding: 0.5rem 1rem; border-radius: 0.5rem;
     border: none; cursor: pointer; transition: all 0.15s;
     text-decoration: none;
+    box-shadow: 0 2px 12px rgba(99,51,174,0.3);
   }
-  .btn-primary:hover { background-color: var(--patent-amber); box-shadow: 0 10px 25px rgba(200,169,81,0.2); }
-  .btn-primary:active { transform: scale(0.95); }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, #2570e8 0%, #7040c4 100%);
+    box-shadow: 0 6px 20px rgba(99,51,174,0.45);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active { transform: scale(0.96); }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .btn-secondary {
@@ -124,8 +134,8 @@
 
   /* ── Typography ── */
   .divider    { border-top: 1px solid rgba(255,255,255,0.1); }
-  .page-title { font-family: var(--font-display), Georgia, serif; font-size: 1.5rem; font-weight: 700; color: white; letter-spacing: -0.025em; }
-  .section-title { font-family: var(--font-display), Georgia, serif; font-size: 1.125rem; font-weight: 600; color: white; }
+  .page-title { font-family: var(--font-display), sans-serif; font-size: 1.625rem; font-weight: 400; color: white; letter-spacing: -0.02em; line-height: 1.1; }
+  .section-title { font-family: var(--font-display), sans-serif; font-size: 1rem; font-weight: 400; color: white; letter-spacing: -0.01em; }
   .text-muted { color: var(--patent-muted); font-size: 0.875rem; }
   .mono { font-family: var(--font-mono), monospace; color: var(--patent-sky); font-size: 0.875rem; }
 
@@ -185,3 +195,109 @@
   stroke: rgba(74,144,217,0.3);
   stroke-width: 1.5px;
 }
+
+/* ── Light theme ────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --patent-muted:  #64748B;
+  --patent-sky:    #1A5BC5;
+  color-scheme: light;
+}
+
+[data-theme="light"] body {
+  background-color: #EEF2F8;
+  background-image:
+    radial-gradient(ellipse at 20% 0%, rgba(26,91,197,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 100%, rgba(91,45,158,0.05) 0%, transparent 60%);
+  color: #1A1A2E;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track { background: rgba(0,0,0,0.04); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(26,91,197,0.25); border-radius: 3px; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(26,91,197,0.4); }
+
+/* Cards */
+[data-theme="light"] .card {
+  background-color: #FFFFFF;
+  border-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .card-hover {
+  background-color: #FFFFFF;
+  border-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .card-hover:hover {
+  background-color: #F5F8FF;
+  border-color: rgba(26,91,197,0.2);
+  box-shadow: 0 4px 16px rgba(26,91,197,0.08);
+}
+
+/* Buttons */
+[data-theme="light"] .btn-secondary {
+  background-color: rgba(0,0,0,0.05);
+  color: #1A1A2E;
+  border-color: rgba(0,0,0,0.15);
+}
+[data-theme="light"] .btn-secondary:hover {
+  background-color: rgba(0,0,0,0.08);
+  border-color: rgba(0,0,0,0.2);
+}
+[data-theme="light"] .btn-ghost { color: #64748B; }
+[data-theme="light"] .btn-ghost:hover { color: #1A1A2E; background-color: rgba(0,0,0,0.05); }
+
+/* Input */
+[data-theme="light"] .input {
+  background-color: #FFFFFF;
+  border-color: rgba(0,0,0,0.18);
+  color: #1A1A2E;
+}
+[data-theme="light"] .input::placeholder { color: #94A3B8; }
+[data-theme="light"] .input:focus {
+  border-color: rgba(26,91,197,0.5);
+  box-shadow: 0 0 0 2px rgba(26,91,197,0.12);
+}
+
+/* Typography */
+[data-theme="light"] .page-title   { color: #0F172A; }
+[data-theme="light"] .section-title { color: #0F172A; }
+[data-theme="light"] .text-muted   { color: #64748B; }
+[data-theme="light"] .divider      { border-top-color: rgba(0,0,0,0.08); }
+[data-theme="light"] .mono         { color: var(--p4-blue); }
+
+/* Table */
+[data-theme="light"] .data-table th {
+  color: #64748B;
+  border-bottom-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .data-table td {
+  color: #334155;
+  border-bottom-color: rgba(0,0,0,0.05);
+}
+[data-theme="light"] .data-table tr:hover td {
+  background-color: rgba(26,91,197,0.03);
+  color: #1A1A2E;
+}
+/* Override ALL text-white in main content — covers titles, headings, stat numbers, etc.
+   Scoped to <main> so the sidebar (which stays dark) is unaffected. */
+[data-theme="light"] main .text-white {
+  color: #1A1A2E;
+}
+
+/* Override text-white used on content links inside table cells */
+[data-theme="light"] .data-table td a.text-white {
+  color: #1A1A2E;
+}
+[data-theme="light"] .data-table td a.text-white:hover {
+  color: var(--patent-sky);
+}
+
+/* Nav items */
+[data-theme="light"] .nav-item        { color: #475569; }
+[data-theme="light"] .nav-item:hover  { color: #1A1A2E; background-color: rgba(0,0,0,0.05); }
+[data-theme="light"] .nav-item.active { color: #1A5BC5; background-color: rgba(26,91,197,0.1); border-color: rgba(26,91,197,0.25); }
+
+/* Surface utilities */
+[data-theme="light"] .bg-surface    { background-color: rgba(0,0,0,0.03); }
+[data-theme="light"] .bg-surface-md { background-color: rgba(0,0,0,0.05); }
+[data-theme="light"] .bg-surface-sm { background-color: rgba(0,0,0,0.02); }
+
+/* Skeleton */
+[data-theme="light"] .skeleton { background-color: rgba(0,0,0,0.07); }

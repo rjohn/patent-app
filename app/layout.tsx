@@ -1,11 +1,17 @@
 import type { Metadata } from 'next'
-import { Playfair_Display, DM_Sans, DM_Mono } from 'next/font/google'
+import { DM_Sans, DM_Mono } from 'next/font/google'
+import localFont from 'next/font/local'
+import { AuthProvider } from '@/context/auth-context'
+import { ThemeProvider } from '@/context/theme-context'
 import './globals.css'
 
-const playfair = Playfair_Display({
-  subsets: ['latin'],
+const sansation = localFont({
+  src: [
+    { path: '../public/fonts/Sansation-Regular.ttf', weight: '400', style: 'normal' },
+  ],
   variable: '--font-display',
   display: 'swap',
+  fallback: ['system-ui', 'sans-serif'],
 })
 
 const dmSans = DM_Sans({
@@ -22,8 +28,8 @@ const dmMono = DM_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Patent Portfolio Manager',
-  description: 'Manage your USPTO patent portfolio, families, and deadlines',
+  title: 'Plaz4 IP',
+  description: 'Manage your patent portfolio, families, and deadlines',
 }
 
 export default function RootLayout({
@@ -32,9 +38,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`${playfair.variable} ${dmSans.variable} ${dmMono.variable}`}>
+    <html lang="en" className={`${sansation.variable} ${dmSans.variable} ${dmMono.variable}`}>
+      <head>
+        {/* Prevent flash of wrong theme on load */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){var t=localStorage.getItem('p4-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)})()` }} />
+      </head>
       <body className="font-body bg-patent-navy text-white antialiased">
-        {children}
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

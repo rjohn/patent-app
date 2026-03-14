@@ -1,16 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { FileText, Download, BarChart3, Calendar, GitBranch, Loader2, CheckCircle2 } from 'lucide-react'
+import { useTheme } from '@/context/theme-context'
 
 const REPORT_TYPES = [
   {
     id: 'portfolio-summary',
     icon: <BarChart3 className="w-5 h-5" />,
-    title: 'Portfolio Summary',
-    description: 'Complete overview of all patents, statuses, and technology areas',
+    title: 'Granted Patent Portfolio',
+    description: 'Granted patents only — patent number, title, filing date, grant date, expiry, and family',
     formats: ['PDF', 'Excel'],
     color: 'patent-sky',
+  },
+  {
+    id: 'pending-applications',
+    icon: <FileText className="w-5 h-5" />,
+    title: 'Pending Applications',
+    description: 'Open applications with PENDING or PUBLISHED status — application number, type, filing date',
+    formats: ['PDF', 'Excel'],
+    color: 'patent-amber',
   },
   {
     id: 'deadlines',
@@ -18,7 +27,7 @@ const REPORT_TYPES = [
     title: 'Deadline & Fee Report',
     description: 'All upcoming maintenance fees and deadlines with amounts due',
     formats: ['PDF', 'Excel'],
-    color: 'patent-amber',
+    color: 'red-400',
   },
   {
     id: 'family-tree',
@@ -28,22 +37,30 @@ const REPORT_TYPES = [
     formats: ['PDF'],
     color: 'purple-400',
   },
-  {
-    id: 'expiration',
-    icon: <FileText className="w-5 h-5" />,
-    title: 'Expiration Schedule',
-    description: 'Patents expiring in the next 1, 3, and 5 years',
-    formats: ['PDF', 'Excel'],
-    color: 'red-400',
-  },
 ]
 
 type ReportStatus = 'idle' | 'generating' | 'done' | 'error'
 
+interface PortfolioStats {
+  totalPatents: number
+  granted: number
+  pending: number
+  families: number
+}
+
 export default function ReportsPage() {
+  const { theme } = useTheme()
+  const light = theme === 'light'
   const [generating, setGenerating] = useState<Record<string, ReportStatus>>({})
   const [dateRange, setDateRange] = useState({ from: '', to: '' })
-  const [includeAbandoned, setIncludeAbandoned] = useState(false)
+  const [stats, setStats] = useState<PortfolioStats | null>(null)
+
+  useEffect(() => {
+    fetch('/api/dashboard')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.stats) setStats({ totalPatents: d.stats.totalPatents, granted: d.stats.granted, pending: d.stats.pending, families: d.stats.families }) })
+      .catch(() => {})
+  }, [])
 
   const generate = async (reportId: string, format: string) => {
     const key = `${reportId}-${format}`
@@ -53,7 +70,7 @@ export default function ReportsPage() {
       const resp = await fetch('/api/reports/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reportId, format, dateRange, includeAbandoned }),
+        body: JSON.stringify({ reportId, format, dateRange }),
       })
 
       if (!resp.ok) throw new Error('Generation failed')
@@ -63,7 +80,8 @@ export default function ReportsPage() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `patent-${reportId}-${new Date().toISOString().split('T')[0]}.${format.toLowerCase()}`
+      const ext = format === 'Excel' ? 'xlsx' : format.toLowerCase()
+      a.download = `patent-${reportId}-${new Date().toISOString().split('T')[0]}.${ext}`
       a.click()
       window.URL.revokeObjectURL(url)
 
@@ -97,15 +115,6 @@ export default function ReportsPage() {
               className="input w-full" />
           </div>
         </div>
-        <label className="flex items-center gap-2 mt-4 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={includeAbandoned}
-            onChange={e => setIncludeAbandoned(e.target.checked)}
-            className="w-4 h-4 rounded border-white/20 bg-white/10 checked:bg-patent-sky"
-          />
-          <span className="text-sm text-white/80">Include abandoned patents</span>
-        </label>
       </div>
 
       {/* Report cards */}
@@ -113,11 +122,16 @@ export default function ReportsPage() {
         {REPORT_TYPES.map(report => (
           <div key={report.id} className="card p-5">
             <div className="flex items-start gap-4">
-              <div className={`p-3 rounded-xl bg-white/5 border border-white/10 text-${report.color} flex-shrink-0`}>
+              <div className="p-3 rounded-xl flex-shrink-0"
+                style={{
+                  background: light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
+                  color: `var(--${report.color.includes('-') ? report.color.replace('-', '-') : 'patent-sky'})`,
+                }}>
                 {report.icon}
               </div>
               <div className="flex-1">
-                <h3 className="font-semibold text-white">{report.title}</h3>
+                <h3 className="font-semibold" style={{ color: light ? '#0F172A' : 'white' }}>{report.title}</h3>
                 <p className="text-sm text-patent-muted mt-0.5">{report.description}</p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -156,19 +170,22 @@ export default function ReportsPage() {
         <h2 className="section-title mb-4">Portfolio Snapshot</h2>
         <div className="grid grid-cols-4 gap-4 mb-4">
           {[
-            { label: 'Total Patents', value: '47' },
-            { label: 'Granted', value: '31' },
-            { label: 'Pending', value: '12' },
-            { label: 'Families', value: '18' },
+            { label: 'Total Patents', value: stats?.totalPatents },
+            { label: 'Granted',       value: stats?.granted },
+            { label: 'Pending',       value: stats?.pending },
+            { label: 'Families',      value: stats?.families },
           ].map(s => (
-            <div key={s.label} className="text-center p-3 bg-white/5 rounded-lg">
-              <div className="text-2xl font-display font-bold text-white">{s.value}</div>
+            <div key={s.label} className="text-center p-3 rounded-lg"
+              style={{ background: light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
+              <div className="text-2xl font-display font-bold" style={{ color: light ? '#0F172A' : 'white' }}>
+                {s.value ?? '—'}
+              </div>
               <div className="text-xs text-patent-muted mt-0.5">{s.label}</div>
             </div>
           ))}
         </div>
         <p className="text-xs text-patent-muted">
-          Reports are generated using live portfolio data. Connect your Supabase database to include real patent records.
+          Reports are generated using live portfolio data.
         </p>
       </div>
     </div>

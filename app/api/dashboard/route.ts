@@ -10,6 +10,7 @@ export async function GET() {
     const [
       totalPatents, granted, pending, abandoned, families,
       upcomingDeadlines, overdueDeadlines, expiringYear,
+      grantedUS, grantedEP, openApplications,
       recentDeadlinesRaw, recentPatents,
     ] = await Promise.all([
       prisma.patent.count(),
@@ -20,6 +21,11 @@ export async function GET() {
       prisma.maintenanceFee.count({ where: { status: { in: ['UPCOMING','DUE'] }, dueDate: { lte: ninety } } }),
       prisma.maintenanceFee.count({ where: { status: 'OVERDUE' } }),
       prisma.patent.count({ where: { expirationDate: { gte: now, lte: yearEnd } } }),
+      // Granted by jurisdiction
+      prisma.patent.count({ where: { status: 'GRANTED', jurisdiction: 'US' } }),
+      prisma.patent.count({ where: { status: 'GRANTED', jurisdiction: 'EP' } }),
+      // Open applications = PENDING or PUBLISHED (not yet granted/abandoned/expired)
+      prisma.patent.count({ where: { status: { in: ['PENDING', 'PUBLISHED'] } } }),
       prisma.maintenanceFee.findMany({
         where: { status: { in: ['OVERDUE','UPCOMING','DUE'] } },
         orderBy: { dueDate: 'asc' },
@@ -51,7 +57,7 @@ export async function GET() {
     }))
 
     return NextResponse.json({
-      stats: { totalPatents, granted, pending, abandoned, families, upcomingDeadlines, overdueDeadlines, expiringYear },
+      stats: { totalPatents, granted, pending, abandoned, families, upcomingDeadlines, overdueDeadlines, expiringYear, grantedUS, grantedEP, openApplications },
       recentDeadlines,
       recentPatents,
     })

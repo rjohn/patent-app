@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { GitBranch, ChevronRight, CheckCircle2, Clock, XCircle, Loader2, AlertCircle, Plus, X } from 'lucide-react'
+import { useTheme } from '@/context/theme-context'
 
 interface FamilyPatent {
   id: string
@@ -91,6 +92,8 @@ function NewFamilyModal({ onClose, onCreated }: { onClose: () => void; onCreated
 }
 
 export default function FamiliesPage() {
+  const { theme } = useTheme()
+  const light = theme === 'light'
   const [families, setFamilies] = useState<Family[]>([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
@@ -153,7 +156,7 @@ export default function FamiliesPage() {
             style={{ background: 'rgba(45,90,158,0.2)', border: '1px solid rgba(74,144,217,0.2)' }}>
             <GitBranch className="w-6 h-6" style={{ color: 'rgba(74,144,217,0.5)' }} />
           </div>
-          <p className="font-medium text-white mb-1">No patent families yet</p>
+          <p className="font-medium mb-1" style={{ color: light ? '#0F172A' : 'white' }}>No patent families yet</p>
           <p className="text-sm text-patent-muted mb-4">Group related patents into families to track continuation chains and technology areas</p>
           <button onClick={() => setShowModal(true)} className="btn-primary text-sm inline-flex items-center gap-2">
             <Plus className="w-4 h-4" /> Create your first family
@@ -175,7 +178,7 @@ export default function FamiliesPage() {
                       <GitBranch className="w-4 h-4" style={{ color: 'var(--patent-sky)' }} />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-white">{family.name}</h3>
+                      <h3 className="font-semibold" style={{ color: light ? '#0F172A' : 'white' }}>{family.name}</h3>
                       {family.technologyArea && (
                         <span className="text-xs px-2 py-0.5 rounded-full border"
                           style={{ background: 'rgba(74,144,217,0.1)', color: 'rgba(74,144,217,0.8)', borderColor: 'rgba(74,144,217,0.2)' }}>
@@ -206,11 +209,14 @@ export default function FamiliesPage() {
                   <div className="space-y-1.5">
                     {family.patents.slice(0, 4).map(p => (
                       <Link key={p.id} href={`/patents/${p.id}`}
-                        className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors group">
+                        className="flex items-center gap-2 p-2 rounded-lg transition-colors group"
+                        style={{ ['--hover-bg' as string]: light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '')}>
                         <span className="font-mono text-[11px] w-32 flex-shrink-0" style={{ color: 'var(--patent-sky)' }}>
                           {p.patentNumber || p.applicationNumber || '—'}
                         </span>
-                        <span className="text-xs flex-1 truncate group-hover:text-white" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                        <span className="text-xs flex-1 truncate" style={{ color: light ? '#334155' : 'rgba(255,255,255,0.7)' }}>
                           {p.title}
                         </span>
                         <span className="text-[10px] flex-shrink-0" style={{
@@ -219,7 +225,7 @@ export default function FamiliesPage() {
                       </Link>
                     ))}
                     {family.patents.length > 4 && (
-                      <Link href={`/families/${family.id}`} className="text-xs text-patent-muted hover:text-white transition-colors pl-2">
+                      <Link href={`/families/${family.id}`} className="text-xs text-patent-muted hover:text-patent-sky transition-colors pl-2">
                         +{family.patents.length - 4} more patents →
                       </Link>
                     )}

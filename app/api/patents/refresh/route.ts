@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calculateMaintenanceFees } from '@/lib/uspto-api'
+import { generateAndCacheSummary } from '@/lib/portfolio-summary'
 
 // ── USPTO ODP ─────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,60 @@ function odpHeaders(): Record<string, string> {
 
 function normalizePatentNumber(raw: string): string {
   return raw.replace(/^US\s*/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '').trim()
+}
+
+// Strip heavy fields (attorney bags, correspondence bags) before storing
+function slimJson(data: any): any {
+  if (!data) return null
+  try {
+    const records = (data.patentFileWrapperDataBag || []).map((rec: any) => {
+      const meta = rec.applicationMetaData || {}
+      return {
+        applicationNumberText: rec.applicationNumberText,
+        applicationMetaData: {
+          applicationStatusCode:            meta.applicationStatusCode,
+          applicationStatusDescriptionText: meta.applicationStatusDescriptionText,
+          applicationTypeCode:              meta.applicationTypeCode,
+          applicationTypeCategory:          meta.applicationTypeCategory,
+          applicationTypeLabelName:         meta.applicationTypeLabelName,
+          filingDate:                       meta.filingDate,
+          effectiveFilingDate:              meta.effectiveFilingDate,
+          grantDate:                        meta.grantDate,
+          earliestPublicationDate:          meta.earliestPublicationDate,
+          earliestPublicationNumber:        meta.earliestPublicationNumber,
+          patentNumber:                     meta.patentNumber,
+          inventionTitle:                   meta.inventionTitle,
+          firstInventorName:                meta.firstInventorName,
+          firstApplicantName:               meta.firstApplicantName,
+          applicationConfirmationNumber:    meta.applicationConfirmationNumber,
+          customerNumber:                   meta.customerNumber,
+          docketNumber:                     meta.docketNumber,
+          entityStatusData:                 meta.entityStatusData,
+          firstInventorToFileIndicator:     meta.firstInventorToFileIndicator,
+          uspcSymbolText:                   meta.uspcSymbolText,
+          abstractText:                     meta.abstractText,
+          inventorBag: (meta.inventorBag || []).map((inv: any) => ({
+            inventorNameText: inv.inventorNameText,
+            firstName: inv.firstName, middleName: inv.middleName, lastName: inv.lastName,
+          })),
+          applicantBag: (meta.applicantBag || []).map((a: any) => ({
+            applicantNameText: a.applicantNameText,
+          })),
+          cpcClassificationBag: meta.cpcClassificationBag,
+          publicationSequenceNumberBag: meta.publicationSequenceNumberBag,
+          publicationDateBag: meta.publicationDateBag,
+        },
+        // Keep event history but strip correspondence addresses from attorneys
+        eventDataBag: rec.eventDataBag || [],
+        // Keep continuity bags
+        parentContinuityBag: rec.parentContinuityBag,
+        childContinuityBag:  rec.childContinuityBag,
+        // Keep document bag (stored separately via fetchDocuments)
+        documentBag: rec.documentBag || [],
+      }
+    })
+    return { count: data.count, patentFileWrapperDataBag: records }
+  } catch { return null }
 }
 
 async function fetchFromODP(patentNumber: string | null, appNumber: string | null): Promise<any | null> {
@@ -41,6 +96,38 @@ async function fetchContinuity(appNumber: string): Promise<any> {
     })
     return res.ok ? res.json() : null
   } catch { return null }
+}
+
+async function fetchDocuments(appNumber: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${ODP_BASE}/${appNumber}/documents`, {
+      headers: odpHeaders(), signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    // Real response shape: { count, documentBag: [...] }  (top-level, not nested)
+    const bag = data?.documentBag
+    if (!Array.isArray(bag)) return []
+    return bag
+      .map((d: any) => {
+        // Pick the PDF download option first, then any other
+        const pdfOption = d.downloadOptionBag?.find((o: any) => o.mimeTypeIdentifier === 'PDF')
+        const anyOption = d.downloadOptionBag?.[0]
+        const chosen    = pdfOption || anyOption
+        return {
+          documentIdentifier:          d.documentIdentifier          || null,
+          documentCode:                d.documentCode                || '',
+          documentCodeDescriptionText: d.documentCodeDescriptionText || '',
+          officialDate:                d.officialDate                || null,
+          directionCategory:           d.directionCategory           || '',
+          pageCount:                   chosen?.pageTotalQuantity     || null,
+          downloadUrl:                 chosen?.downloadUrl           || null,
+          mimeType:                    chosen?.mimeTypeIdentifier    || null,
+        }
+      })
+      .filter((d: any) => d.officialDate)
+      .sort((a: any, b: any) => b.officialDate.localeCompare(a.officialDate))
+  } catch { return [] }
 }
 
 function mapStatus(s: string): string {
@@ -290,6 +377,7 @@ async function refreshEp(patent: PatentRecord): Promise<RefreshResult> {
         ...(shaped.assignee     ? { assignee: shaped.assignee }         : {}),
         ...(shaped.cpcCodes.length  ? { cpcCodes: shaped.cpcCodes }     : {}),
         jurisdiction: 'EP',
+        rawXmlData: biblioXml,
         ...(abstractData.abstract   ? { abstract: abstractData.abstract } : {}),
         ...(abstractData.claimsJson ? { claimsJson: abstractData.claimsJson } : {}),
       },
@@ -321,9 +409,10 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
     const appMeta = record.applicationMetaData || {}
     const appNum  = record.applicationNumberText || patent.applicationNumber
 
-    const [continuity, abstractData] = await Promise.all([
+    const [continuity, abstractData, documents] = await Promise.all([
       appNum ? fetchContinuity(appNum) : Promise.resolve(null),
       patent.patentNumber ? fetchAbstractAndClaims(patent.patentNumber) : Promise.resolve({ abstract: null, claimsJson: null }),
+      appNum ? fetchDocuments(appNum) : Promise.resolve([]),
     ])
 
     const inventors = (appMeta.inventorBag || [])
@@ -377,11 +466,83 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
         inventors,
         assignee:          newAssignee,
         cpcCodes,
-        rawJsonData:       raw,
+        rawJsonData:       { ...slimJson(raw), documentBag: documents },
         ...(abstractData?.abstract   ? { abstract:   abstractData.abstract }   : {}),
         ...(abstractData?.claimsJson ? { claimsJson: abstractData.claimsJson } : {}),
       },
     })
+
+    // ── Wire up continuity relationships ───────────────────────────────────────
+    // continuity data has parentContinuityBag and childContinuityBag
+    // each entry has applicationNumberText and continuityTypeCategory
+    if (continuity) {
+      const bag = continuity.patentFileWrapperDataBag?.[0] || continuity
+      const parents: any[] = bag.parentContinuityBag || []
+      const children: any[] = bag.childContinuityBag || []
+
+      // Map continuity type string → our enum
+      function mapConType(t: string): string {
+        const u = (t || '').toUpperCase()
+        if (u.includes('CONTINUATION IN PART') || u.includes('CIP')) return 'CONTINUATION_IN_PART'
+        if (u.includes('CONTINUATION'))   return 'CONTINUATION'
+        if (u.includes('DIVISIONAL'))     return 'DIVISIONAL'
+        if (u.includes('REISSUE'))        return 'REISSUE'
+        return 'CONTINUATION'
+      }
+
+      // Try to link this patent to a parent already in DB
+      if (parents.length > 0 && !existing?.parentPatentId) {
+        for (const parent of parents) {
+          const parentAppNum = parent.applicationNumberText?.replace(/[\/,\s]/g, '')
+          if (!parentAppNum) continue
+          const parentInDb = await prisma.patent.findFirst({
+            where: {
+              OR: [
+                { applicationNumber: { contains: parentAppNum } },
+                { applicationNumber: parentAppNum },
+              ]
+            },
+            select: { id: true }
+          })
+          if (parentInDb) {
+            await prisma.patent.update({
+              where: { id: patent.id },
+              data: {
+                parentPatentId:   parentInDb.id,
+                continuationType: mapConType(parent.continuityTypeCategory) as any,
+              }
+            })
+            changes.push(`linked to parent (${mapConType(parent.continuityTypeCategory)})`)
+            break
+          }
+        }
+      }
+
+      // Try to link children already in DB back to this patent
+      for (const child of children) {
+        const childAppNum = child.applicationNumberText?.replace(/[\/,\s]/g, '')
+        if (!childAppNum) continue
+        const childInDb = await prisma.patent.findFirst({
+          where: {
+            AND: [
+              { OR: [{ applicationNumber: { contains: childAppNum } }, { applicationNumber: childAppNum }] },
+              { parentPatentId: null },  // don't overwrite existing links
+            ]
+          },
+          select: { id: true }
+        })
+        if (childInDb) {
+          await prisma.patent.update({
+            where: { id: childInDb.id },
+            data: {
+              parentPatentId:   patent.id,
+              continuationType: mapConType(child.continuityTypeCategory) as any,
+            }
+          })
+          changes.push(`child ${childAppNum} linked (${mapConType(child.continuityTypeCategory)})`)
+        }
+      }
+    }
 
     if (newGrantDate && newType === 'UTILITY') {
       const feeCount = await prisma.maintenanceFee.count({ where: { patentId: patent.id } })
@@ -419,7 +580,9 @@ export async function GET(req: NextRequest) {
   if (id) {
     const patent = await prisma.patent.findUnique({ where: { id }, select })
     if (!patent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json(await refreshOne(patent))
+    const result = await refreshOne(patent)
+    if (result.status === 'updated') generateAndCacheSummary().catch(() => {})
+    return NextResponse.json(result)
   }
 
   const patents = await prisma.patent.findMany({ select, orderBy: { updatedAt: 'asc' } })
@@ -442,10 +605,13 @@ export async function POST(req: NextRequest) {
       await new Promise(r => setTimeout(r, 300))
     }
 
+    const updatedCount = results.filter(r => r.status === 'updated').length
+    if (updatedCount > 0) generateAndCacheSummary().catch(() => {})
+
     return NextResponse.json({
       results,
       total:     targets.length,
-      updated:   results.filter(r => r.status === 'updated').length,
+      updated:   updatedCount,
       unchanged: results.filter(r => r.status === 'unchanged').length,
       failed:    results.filter(r => r.status === 'error' || r.status === 'skipped').length,
     })

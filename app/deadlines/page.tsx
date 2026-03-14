@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { AlertTriangle, CheckCircle2, Clock, DollarSign, Loader2, AlertCircle } from 'lucide-react'
+import { useTheme } from '@/context/theme-context'
 
 interface DeadlineItem {
   id: string
@@ -32,6 +33,8 @@ function urgencyConfig(daysUntil: number, status: string) {
 }
 
 export default function DeadlinesPage() {
+  const { theme } = useTheme()
+  const light = theme === 'light'
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([])
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
@@ -103,7 +106,7 @@ export default function DeadlinesPage() {
         <div className="card p-4 flex items-center gap-3" style={{ borderColor: overdue > 0 ? 'rgba(239,68,68,0.3)' : undefined }}>
           <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: overdue > 0 ? '#f87171' : 'var(--patent-muted)' }} />
           <div>
-            <div className="text-2xl font-bold" style={{ color: overdue > 0 ? '#f87171' : 'white' }}>{overdue}</div>
+            <div className="text-2xl font-bold" style={{ color: overdue > 0 ? '#f87171' : (light ? '#0F172A' : 'white') }}>{overdue}</div>
             <div className="text-xs text-patent-muted">Overdue</div>
           </div>
         </div>
@@ -124,14 +127,20 @@ export default function DeadlinesPage() {
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-1 mb-5 p-1 rounded-lg w-fit" style={{ background: 'rgba(255,255,255,0.05)' }}>
+      <div className="flex gap-1 mb-5 p-1 rounded-lg w-fit"
+        style={{ background: light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
         {tabs.map(t => (
           <button key={t.key} onClick={() => setFilter(t.key)}
-            className={`text-sm px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${filter === t.key ? 'bg-patent-navy text-white' : 'text-patent-muted hover:text-white'}`}>
+            className="text-sm px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5"
+            style={{
+              background: filter === t.key ? (light ? '#FFFFFF' : 'var(--patent-navy)') : 'transparent',
+              color: filter === t.key ? (light ? '#0F172A' : 'white') : 'var(--patent-muted)',
+              boxShadow: filter === t.key && light ? '0 1px 3px rgba(0,0,0,0.1)' : undefined,
+            }}>
             {t.label}
             {t.count !== undefined && t.count > 0 && (
               <span className="text-xs px-1.5 py-0.5 rounded-full" style={{
-                background: t.key === 'OVERDUE' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.1)',
+                background: t.key === 'OVERDUE' ? 'rgba(239,68,68,0.2)' : (light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)'),
                 color: t.key === 'OVERDUE' ? '#f87171' : 'inherit'
               }}>{t.count}</span>
             )}
@@ -162,13 +171,15 @@ export default function DeadlinesPage() {
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-white/5">
+          <div>
             {filtered.map(d => {
               const urg = urgencyConfig(d.daysUntil, d.status)
               const isPaid = d.status === 'PAID'
               return (
-                <div key={d.id} className="px-6 py-4 flex items-center gap-5 hover:bg-white/5 transition-colors"
-                  style={{ opacity: isPaid ? 0.6 : 1 }}>
+                <div key={d.id} className="px-6 py-4 flex items-center gap-5 transition-colors"
+                  style={{ opacity: isPaid ? 0.6 : 1, borderBottom: light ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.05)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = light ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.05)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = '')}>
                   {/* Urgency badge */}
                   <div className={`text-xs font-semibold px-2.5 py-1 rounded-full border flex-shrink-0 w-20 text-center ${urg.className}`}>
                     {isPaid ? 'PAID' : d.daysUntil < 0 ? 'OVERDUE' : `${d.daysUntil}d`}
@@ -178,11 +189,12 @@ export default function DeadlinesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="mono text-xs" style={{ color: 'var(--patent-sky)' }}>{d.patentNumber || '—'}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.07)', color: 'var(--patent-muted)' }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full"
+                        style={{ background: light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.07)', color: 'var(--patent-muted)' }}>
                         {feeLabel(d.feeType)}
                       </span>
                     </div>
-                    <p className="text-sm mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.8)' }}>{d.title}</p>
+                    <p className="text-sm mt-0.5 truncate" style={{ color: light ? '#334155' : 'rgba(255,255,255,0.8)' }}>{d.title}</p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--patent-muted)' }}>
                       Due: {d.dueDate?.slice(0, 10)} · Grace period ends: {d.gracePeriodEnd?.slice(0, 10)}
                     </p>
