@@ -1,1 +1,0 @@
-self.__NEXT_FONT_MANIFEST="{\"pages\":{},\"app\":{\"/Users/rjohn/dev/patent-app/app/layout\":[\"static/media/b7ea2ab4a8ad1f81-s.p.woff2\",\"static/media/0e96d314a90a6138-s.p.woff2\",\"static/media/13971731025ec697-s.p.woff2\",\"static/media/b80b2429884e0d72-s.p.ttf\"]},\"appUsingSizeAdjust\":true,\"pagesUsingSizeAdjust\":false}"
