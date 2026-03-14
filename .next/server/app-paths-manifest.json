@@ -1,0 +1,11 @@
+{
+  "/api/families/[id]/route": "app/api/families/[id]/route.js",
+  "/api/families/route": "app/api/families/route.js",
+  "/families/page": "app/families/page.js",
+  "/import/page": "app/import/page.js",
+  "/api/patents/route": "app/api/patents/route.js",
+  "/lookup/page": "app/lookup/page.js",
+  "/families/[id]/page": "app/families/[id]/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/patents/page": "app/patents/page.js"
+}

@@ -1,0 +1,272 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Auth ────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      UserRole @default(VIEWER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  patents   Patent[]
+  notes     PatentNote[]
+  uploads   DataUpload[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// ─── Patent Family ────────────────────────────────────────────────────────────
+
+model PatentFamily {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  technologyArea String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  patents     Patent[]
+
+  @@map("patent_families")
+}
+
+// ─── Patent ───────────────────────────────────────────────────────────────────
+
+model Patent {
+  id                String        @id @default(cuid())
+  
+  // Core identifiers
+  applicationNumber String?       @unique
+  publicationNumber String?
+  epNumber          String?          @unique
+  jurisdiction      String?          @default("US")
+  patentNumber      String?       @unique
+  usptoId           String?       // USPTO internal ID
+  
+  // Bibliographic data
+  title             String
+  abstract          String?       @db.Text
+  claimsJson        Json?
+  status            PatentStatus  @default(PENDING)
+  type              PatentType    @default(UTILITY)
+  
+  // Dates
+  filingDate        DateTime?
+  publicationDate   DateTime?
+  grantDate         DateTime?
+  expirationDate    DateTime?
+  priorityDate      DateTime?
+  
+  // Parties
+  inventors         String[]      // Array of inventor names
+  assignee          String?
+  attorney          String?
+  
+  // Classification
+  cpcCodes          String[]      // Cooperative Patent Classification codes
+  uspcCodes         String[]      // US Patent Classification codes
+  
+  // Family relationships
+  familyId          String?
+  family            PatentFamily? @relation(fields: [familyId], references: [id])
+  parentPatentId    String?       // For continuations, divisionals, etc.
+  parentPatent      Patent?       @relation("PatentContinuations", fields: [parentPatentId], references: [id])
+  childPatents      Patent[]      @relation("PatentContinuations")
+  continuationType  ContinuationType?
+  
+  // Priority claims
+  priorityClaims    PriorityClaim[]
+  
+  // Ownership
+  ownerId           String?
+  owner             User?         @relation(fields: [ownerId], references: [id])
+  
+  // Financial
+  maintenanceFees   MaintenanceFee[]
+  estimatedValue    Float?
+  
+  // Documents & Notes
+  notes             PatentNote[]
+  documents         PatentDocument[]
+  
+  // Raw data
+  rawXmlData        String?       @db.Text
+  rawJsonData       Json?
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@map("patents")
+}
+
+enum PatentStatus {
+  PENDING
+  PUBLISHED
+  GRANTED
+  ABANDONED
+  EXPIRED
+  LICENSED
+  SOLD
+}
+
+enum PatentType {
+  UTILITY
+  DESIGN
+  PLANT
+  PROVISIONAL
+  PCT
+}
+
+enum ContinuationType {
+  CONTINUATION
+  CONTINUATION_IN_PART
+  DIVISIONAL
+  REISSUE
+  REEXAMINATION
+}
+
+// ─── Priority Claims ──────────────────────────────────────────────────────────
+
+model PriorityClaim {
+  id            String   @id @default(cuid())
+  patentId      String
+  patent        Patent   @relation(fields: [patentId], references: [id], onDelete: Cascade)
+  country       String
+  applicationNumber String
+  filingDate    DateTime?
+  createdAt     DateTime @default(now())
+
+  @@map("priority_claims")
+}
+
+// ─── Maintenance Fees & Deadlines ─────────────────────────────────────────────
+
+model MaintenanceFee {
+  id          String      @id @default(cuid())
+  patentId    String
+  patent      Patent      @relation(fields: [patentId], references: [id], onDelete: Cascade)
+  
+  feeType     FeeType
+  dueDate     DateTime
+  amount      Float?
+  currency    String      @default("USD")
+  status      FeeStatus   @default(UPCOMING)
+  paidDate    DateTime?
+  paidAmount  Float?
+  
+  // Grace period
+  gracePeriodEnd DateTime?
+  
+  notes       String?
+  reminderSent Boolean   @default(false)
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@map("maintenance_fees")
+}
+
+enum FeeType {
+  FILING
+  PUBLICATION
+  GRANT
+  MAINTENANCE_3_5
+  MAINTENANCE_7_5
+  MAINTENANCE_11_5
+  ANNUITY
+  OTHER
+}
+
+enum FeeStatus {
+  UPCOMING
+  DUE
+  OVERDUE
+  PAID
+  WAIVED
+}
+
+// ─── Notes ────────────────────────────────────────────────────────────────────
+
+model PatentNote {
+  id        String   @id @default(cuid())
+  patentId  String
+  patent    Patent   @relation(fields: [patentId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("patent_notes")
+}
+
+// ─── Documents ────────────────────────────────────────────────────────────────
+
+model PatentDocument {
+  id          String       @id @default(cuid())
+  patentId    String
+  patent      Patent       @relation(fields: [patentId], references: [id], onDelete: Cascade)
+  name        String
+  type        DocumentType
+  url         String       // Supabase Storage URL
+  fileSize    Int?
+  mimeType    String?
+  createdAt   DateTime     @default(now())
+
+  @@map("patent_documents")
+}
+
+enum DocumentType {
+  APPLICATION
+  OFFICE_ACTION
+  RESPONSE
+  GRANT_CERTIFICATE
+  ASSIGNMENT
+  LICENSE
+  OTHER
+}
+
+// ─── Data Uploads ─────────────────────────────────────────────────────────────
+
+model DataUpload {
+  id          String       @id @default(cuid())
+  uploadedById String
+  uploadedBy  User         @relation(fields: [uploadedById], references: [id])
+  fileName    String
+  fileType    String
+  status      UploadStatus @default(PROCESSING)
+  recordsProcessed Int?
+  recordsFailed    Int?
+  errorLog    String?      @db.Text
+  createdAt   DateTime     @default(now())
+  completedAt DateTime?
+
+  @@map("data_uploads")
+}
+
+enum UploadStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  PARTIAL
+}
