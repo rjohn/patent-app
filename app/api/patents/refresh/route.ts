@@ -481,7 +481,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
       const children: any[] = bag.childContinuityBag || []
 
       // Map continuity type string → our enum
-      function mapConType(t: string): string {
+      const mapConType = (t: string): string => {
         const u = (t || '').toUpperCase()
         if (u.includes('CONTINUATION IN PART') || u.includes('CIP')) return 'CONTINUATION_IN_PART'
         if (u.includes('CONTINUATION'))   return 'CONTINUATION'
