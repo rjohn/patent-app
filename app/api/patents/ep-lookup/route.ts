@@ -146,7 +146,7 @@ function shapeBiblio(biblioXml: string, epNumber: string) {
   // IPC / CPC codes
   const ipcCodes = getAllTags(biblioXml, 'classification-ipcr').slice(0, 8)
   const cpcCodes = getAllTags(biblioXml, 'classification-cpc').slice(0, 8)
-  const classifications = [...new Set([...ipcCodes, ...cpcCodes])].filter(Boolean)
+  const classifications = Array.from(new Set([...ipcCodes, ...cpcCodes])).filter(Boolean)
 
   // Publication number
   const pubNum = `EP${epNumber}`
