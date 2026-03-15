@@ -595,7 +595,7 @@ function ContinuityTreeTab() {
   const trees = buildTrees(patents)
 
   // Filter trees: show a root if it or any descendant matches search
-  function patentMatchesSearch(p: TreePatent, q: string): boolean {
+  const patentMatchesSearch = (p: TreePatent, q: string): boolean => {
     const lq = q.toLowerCase()
     if (p.title.toLowerCase().includes(lq)) return true
     if ((p.patentNumber || '').includes(q)) return true

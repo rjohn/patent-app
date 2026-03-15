@@ -137,7 +137,7 @@ function buildDeadlineReport(patents: any[], date: string, companyName: string):
   const feeAmounts: Record<string, string> = {
     MAINTENANCE_3_5: '$800', MAINTENANCE_7_5: '$1,850', MAINTENANCE_11_5: '$3,700',
   }
-  function feeLabel(t: string) { return t.replace('MAINTENANCE_', '').replace('_', '.') + 'yr' }
+  const feeLabel = (t: string) => t.replace('MAINTENANCE_', '').replace('_', '.') + 'yr'
 
   const cols = [
     { label: 'Patent No.', width: 105 },

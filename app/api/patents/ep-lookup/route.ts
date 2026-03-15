@@ -94,7 +94,7 @@ function shapeBiblio(biblioXml: string, epNumber: string) {
     return getTag(pubRef, 'date') || getTag(biblioXml, 'date-of-publication') || getTag(biblioXml, 'publication-date')
   })()
 
-  function parseEpoDate(d: string | null): string | null {
+  const parseEpoDate = (d: string | null): string | null => {
     if (!d) return null
     const s = d.replace(/\D/g, '')
     if (s.length === 8) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`

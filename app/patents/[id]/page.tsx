@@ -663,12 +663,12 @@ function ContinuityTab({ patentId, jurisdiction }: { patentId: string; jurisdict
       const result = await res.json()
       if (!res.ok) {
         if (res.status === 409) {
-          setImported(s => new Set([...s, appNum]))
+          setImported(s => { const n = new Set(Array.from(s)); n.add(appNum); return n })
         } else {
           setImportError(result.error || 'Import failed')
         }
       } else {
-        setImported(s => new Set([...s, appNum]))
+        setImported(s => { const n = new Set(Array.from(s)); n.add(appNum); return n })
         // If we imported a parent, link the current patent back to it
         if (entry.role === 'parent' && result.patent?.id) {
           await fetch(`/api/patents/${patentId}`, {
