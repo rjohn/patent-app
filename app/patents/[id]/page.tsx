@@ -34,6 +34,7 @@ interface Patent {
   artUnit: string | null
   cpcCodes: string[]
   uspcCodes: string[]
+  jurisdiction: string | null
   continuationType: string | null
   family: { id: string; name: string } | null
   parentPatent: { id: string; patentNumber: string | null; title: string; status: string } | null

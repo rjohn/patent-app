@@ -437,7 +437,7 @@ const CONT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
 function buildTrees(patents: TreePatent[]): TreePatent[] {
   const byId = new Map(patents.map(p => [p.id, { ...p, children: [] as TreePatent[] }]))
   const roots: TreePatent[] = []
-  for (const p of byId.values()) {
+  for (const p of Array.from(byId.values())) {
     if (p.parentPatentId && byId.has(p.parentPatentId)) {
       byId.get(p.parentPatentId)!.children!.push(p)
     } else {

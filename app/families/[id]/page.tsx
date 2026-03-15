@@ -50,8 +50,8 @@ function buildTree(patents: Patent[]): PatentNode | null {
     title: p.title,
     status: p.status,
     type: p.type,
-    filedDate: p.filingDate?.slice(0, 10) || null,
-    grantDate: p.grantDate?.slice(0, 10) || null,
+    filedDate: p.filingDate?.slice(0, 10) || undefined,
+    grantDate: p.grantDate?.slice(0, 10) || undefined,
     continuationType: p.continuationType || undefined,
     children: [],
   }))
@@ -59,7 +59,7 @@ function buildTree(patents: Patent[]): PatentNode | null {
   patents.forEach(p => {
     const node = nodeMap.get(p.id)!
     if (p.parentPatentId && nodeMap.has(p.parentPatentId)) {
-      nodeMap.get(p.parentPatentId)!.children.push(node)
+      nodeMap.get(p.parentPatentId)!.children!.push(node)
     } else {
       if (!root || (p.filingDate && (!root.filedDate || p.filingDate < root.filedDate))) root = node
     }
@@ -126,7 +126,7 @@ function AddPatentsModal({
     setSaving(true)
     setError(null)
     try {
-      await Promise.all([...selected].map(patentId =>
+      await Promise.all(Array.from(selected).map(patentId =>
         fetch(`/api/patents/${patentId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
