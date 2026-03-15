@@ -438,7 +438,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
 
     const existing = await prisma.patent.findUnique({
       where: { id: patent.id },
-      select: { status: true, title: true, grantDate: true, assignee: true, type: true, patentNumber: true, abstract: true },
+      select: { status: true, title: true, grantDate: true, assignee: true, type: true, patentNumber: true, abstract: true, parentPatentId: true },
     })
 
     const changes: string[] = []
