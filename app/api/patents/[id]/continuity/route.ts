@@ -53,7 +53,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     // Children: childApplicationNumberText, childApplicationFilingDate,
     //           childApplicationStatusDescriptionText, claimParentageTypeCodeDescriptionText
 
-    async function enrich(entries: any[], role: 'parent' | 'child') {
+    const enrich = async (entries: any[], role: 'parent' | 'child') => {
       return Promise.all(entries.map(async entry => {
         const rawAppNum  = role === 'parent'
           ? (entry.parentApplicationNumberText || '')
