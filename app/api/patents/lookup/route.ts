@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calculateMaintenanceFees } from '@/lib/uspto-api'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * USPTO Open Data Portal — Patent File Wrapper API
  * Base: https://api.uspto.gov/api/v1/patent/applications

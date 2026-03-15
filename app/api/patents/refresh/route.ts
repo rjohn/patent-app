@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { calculateMaintenanceFees } from '@/lib/uspto-api'
 import { generateAndCacheSummary } from '@/lib/portfolio-summary'
 
+export const dynamic = 'force-dynamic'
+
 // ── USPTO ODP ─────────────────────────────────────────────────────────────────
 
 const ODP_BASE = 'https://api.uspto.gov/api/v1/patent/applications'

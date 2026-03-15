@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { calculateMaintenanceFees } from '@/lib/uspto-api'
 import { PatentStatus } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()

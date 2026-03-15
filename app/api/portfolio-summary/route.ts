@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getCachedSummary, generateAndCacheSummary } from '@/lib/portfolio-summary'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const summary = await getCachedSummary()

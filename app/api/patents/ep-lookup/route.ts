@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calculateMaintenanceFees } from '@/lib/uspto-api'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * EPO Open Patent Services API — European patent lookup
  * Base: https://ops.epo.org/3.2/rest-services

@@ -5,6 +5,8 @@ import * as XLSX from 'xlsx'
 import { prisma } from '@/lib/prisma'
 import { PDFBuilder } from '@/lib/pdf-builder'
 
+export const dynamic = 'force-dynamic'
+
 // Load assets once at module startup (null if file missing)
 let sansationFont: Buffer | null = null
 let aptosFont:     Buffer | null = null

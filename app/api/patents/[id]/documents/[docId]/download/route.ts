@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 const ODP_BASE = 'https://api.uspto.gov/api/v1/download/applications'
 
 export async function GET(

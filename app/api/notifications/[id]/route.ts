@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+export const dynamic = 'force-dynamic'
+
 // PATCH — mark read or complete todo
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
