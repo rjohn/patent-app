@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import {
   Settings, Users, Key, Bell, Shield, Save, CheckCircle2, Building2,
   UserPlus, Mail, Trash2, RefreshCw, Copy, Check, X,
@@ -216,8 +215,7 @@ function InviteLinkModal({ url, email, onClose }: { url: string; email: string; 
 }
 
 function ChangePasswordSection() {
-  const supabase = createClientComponentClient()
-
+  const [email,     setEmail]     = useState('')
   const [password,  setPassword]  = useState('')
   const [confirm,   setConfirm]   = useState('')
   const [showPw,    setShowPw]    = useState(false)
@@ -227,18 +225,25 @@ function ChangePasswordSection() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (password.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (password !== confirm) { setError('Passwords do not match'); return }
+    if (!email)               { setError('Email is required'); return }
+    if (password.length < 8)  { setError('Password must be at least 8 characters'); return }
+    if (password !== confirm)  { setError('Passwords do not match'); return }
     setError(null)
     setLoading(true)
 
-    const { error } = await supabase.auth.updateUser({ password })
+    const res = await fetch('/api/auth/update-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    const data = await res.json()
     setLoading(false)
 
-    if (error) {
-      setError(error.message)
+    if (!res.ok) {
+      setError(data.error || 'Failed to update password')
     } else {
       setSuccess(true)
+      setEmail('')
       setPassword('')
       setConfirm('')
       setTimeout(() => setSuccess(false), 3000)
@@ -255,6 +260,16 @@ function ChangePasswordSection() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 max-w-sm">
+        <div>
+          <label className="label block mb-1.5">Your email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="input w-full"
+            placeholder="you@example.com"
+          />
+        </div>
         <div>
           <label className="label block mb-1.5">New password</label>
           <div className="relative">
