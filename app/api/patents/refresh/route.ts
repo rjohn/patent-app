@@ -502,8 +502,9 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
       // Try to link this patent to a parent already in DB
       if (parents.length > 0 && !existing?.parentPatentId) {
         for (const parent of parents) {
-          const parentAppNum = parent.applicationNumberText?.replace(/[\/,\s]/g, '')
+          const parentAppNum = (parent.parentApplicationNumberText || parent.applicationNumberText || '').replace(/[\/,\s]/g, '')
           if (!parentAppNum) continue
+          const conType = parent.claimParentageTypeCode || parent.claimParentageTypeCodeDescriptionText || parent.continuityTypeCategory || ''
           const parentInDb = await prisma.patent.findFirst({
             where: {
               OR: [
@@ -518,10 +519,10 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
               where: { id: patent.id },
               data: {
                 parentPatentId:   parentInDb.id,
-                continuationType: mapConType(parent.continuityTypeCategory) as any,
+                continuationType: mapConType(conType) as any,
               }
             })
-            changes.push(`linked to parent (${mapConType(parent.continuityTypeCategory)})`)
+            changes.push(`linked to parent (${mapConType(conType)})`)
             break
           }
         }
@@ -529,8 +530,9 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
 
       // Try to link children already in DB back to this patent
       for (const child of children) {
-        const childAppNum = child.applicationNumberText?.replace(/[\/,\s]/g, '')
+        const childAppNum = (child.childApplicationNumberText || child.applicationNumberText || '').replace(/[\/,\s]/g, '')
         if (!childAppNum) continue
+        const conType = child.claimParentageTypeCode || child.claimParentageTypeCodeDescriptionText || child.continuityTypeCategory || ''
         const childInDb = await prisma.patent.findFirst({
           where: {
             AND: [
@@ -545,10 +547,10 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
             where: { id: childInDb.id },
             data: {
               parentPatentId:   patent.id,
-              continuationType: mapConType(child.continuityTypeCategory) as any,
+              continuationType: mapConType(conType) as any,
             }
           })
-          changes.push(`child ${childAppNum} linked (${mapConType(child.continuityTypeCategory)})`)
+          changes.push(`child ${childAppNum} linked (${mapConType(conType)})`)
         }
       }
     }
