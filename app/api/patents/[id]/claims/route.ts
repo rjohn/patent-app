@@ -78,23 +78,38 @@ async function fetchFromEpo(patentNumber: string): Promise<{
     'Accept': 'application/xml',
   }
 
+  const fulltextBase = 'https://ops.epo.org/3.2/rest-services/fulltext/publication/epodoc'
+
   try {
-    const [absRes, claimsRes] = await Promise.all([
-      fetch(`${base}/${docNum}/abstract`,  { headers, signal: AbortSignal.timeout(10000) }),
-      fetch(`${base}/${docNum}/claims`,    { headers, signal: AbortSignal.timeout(10000) }),
+    const [absRes, claimsRes, ftClaimsRes] = await Promise.all([
+      fetch(`${base}/${docNum}/abstract`,       { headers, signal: AbortSignal.timeout(10000) }),
+      fetch(`${base}/${docNum}/claims`,          { headers, signal: AbortSignal.timeout(10000) }),
+      fetch(`${fulltextBase}/${docNum}/claims`,  { headers, signal: AbortSignal.timeout(10000) }),
     ])
+
+    console.log(`[claims/route] ${docNum} abstract=${absRes.status} pub-claims=${claimsRes.status} ft-claims=${ftClaimsRes.status}`)
 
     const abstract = absRes.ok
       ? extractTextFromOpsXml(await absRes.text(), 'abstract')
       : null
 
-    const claimsXml = claimsRes.ok ? await claimsRes.text() : ''
-    const claimsRaw = extractTextFromOpsXml(claimsXml, 'claims')
-    const claims    = claimsRaw ? parseClaimsText(claimsRaw) : []
+    // Try published-data claims first, then fulltext claims
+    let claimsRaw: string | null = null
+    if (claimsRes.ok) {
+      claimsRaw = extractTextFromOpsXml(await claimsRes.text(), 'claims')
+    }
+    if (!claimsRaw && ftClaimsRes.ok) {
+      claimsRaw = extractTextFromOpsXml(await ftClaimsRes.text(), 'claims')
+    }
+    const claims = claimsRaw ? parseClaimsText(claimsRaw) : []
 
+    console.log(`[claims/route] ${docNum} → abstract=${!!abstract} claims=${claims.length}`)
     if (!abstract && claims.length === 0) return null
     return { abstract, claims }
-  } catch { return null }
+  } catch (e) {
+    console.error(`[claims/route] fetchFromEpo error for ${docNum}:`, e)
+    return null
+  }
 }
 
 // ── ODP XML documents fallback ────────────────────────────────────────────────
@@ -134,7 +149,7 @@ async function fetchFromOdpXml(appNumber: string): Promise<{
     })
     if (!docsRes.ok) return null
 
-    const docBag: any[] = (await docsRes.json())?.patentDocumentMetaDataBag || []
+    const docBag: any[] = (await docsRes.json())?.documentBag || []
 
     // Prefer the grant XML (documentCode contains GRANT/ISSUE), fall back to any XML
     const xmlDoc =
@@ -178,20 +193,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     // ── 1b. Abstract stored in rawJsonData from ODP refresh
-    const rawAbstract = (patent.rawJsonData as any)?.applicationMetaData?.abstractText || null
+    const rawAbstract = (patent.rawJsonData as any)?.patentFileWrapperDataBag?.[0]?.applicationMetaData?.abstractText || null
 
     // ── 2. EPO OPS (requires EPO_OPS_KEY + EPO_OPS_SECRET env vars)
+    let epoAbstract: string | null = null
     if (patent.patentNumber) {
       const epo = await fetchFromEpo(patent.patentNumber)
-      if (epo) {
+      if (epo && epo.claims.length > 0) {
         const updateData: any = {}
         if (epo.abstract) updateData.abstract = epo.abstract
-        if (epo.claims.length > 0) updateData.claimsJson = epo.claims.map((t, i) => ({ claim_sequence: i + 1, claim_text: t }))
-        if (Object.keys(updateData).length > 0) {
-          await prisma.patent.update({ where: { id }, data: updateData }).catch(() => {})
-        }
+        updateData.claimsJson = epo.claims.map((t, i) => ({ claim_sequence: i + 1, claim_text: t }))
+        await prisma.patent.update({ where: { id }, data: updateData }).catch(() => {})
         return NextResponse.json({ ...epo, source: 'epo-ops' })
       }
+      // EPO had abstract but no claims — save abstract and continue to ODP fallback
+      if (epo?.abstract) epoAbstract = epo.abstract
     }
 
     // ── 3. ODP XML document download
@@ -208,8 +224,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    // ── 4. Return whatever is in DB (including rawJsonData abstract)
-    const fallbackAbstract = patent.abstract || rawAbstract || null
+    // ── 5. Return whatever is in DB (including rawJsonData abstract or EPO abstract)
+    const fallbackAbstract = patent.abstract || epoAbstract || rawAbstract || null
     if (fallbackAbstract) {
       // Save it back to the abstract field for next time
       if (!patent.abstract && rawAbstract) {

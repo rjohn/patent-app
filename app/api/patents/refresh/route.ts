@@ -292,7 +292,7 @@ function shapeEpoBiblio(biblioXml: string) {
 async function fetchAbstractAndClaims(patentNumber: string): Promise<{ abstract: string | null; claimsJson: any[] | null }> {
   try {
     const token = await getEpoToken()
-    if (!token) return { abstract: null, claimsJson: null }
+    if (!token) { console.warn('[claims] No EPO token — check EPO_OPS_KEY/EPO_OPS_SECRET'); return { abstract: null, claimsJson: null } }
     const bare = patentNumber.replace(/^US/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '')
     const base = `https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/US${bare}`
     const hdrs = { Authorization: `Bearer ${token}`, Accept: 'application/xml' }
@@ -300,6 +300,7 @@ async function fetchAbstractAndClaims(patentNumber: string): Promise<{ abstract:
       fetch(`${base}/abstract`, { headers: hdrs, signal: AbortSignal.timeout(10000) }),
       fetch(`${base}/claims`,   { headers: hdrs, signal: AbortSignal.timeout(10000) }),
     ])
+    console.log(`[claims] US${bare} abstract=${absRes.status} claims=${claimRes.status}`)
     const abstract   = absRes.ok   ? extractXmlText(await absRes.text(),   'abstract') : null
     const claimsText = claimRes.ok ? extractXmlText(await claimRes.text(), 'claims')   : null
     let claimsJson: any[] | null = null
@@ -308,8 +309,12 @@ async function fetchAbstractAndClaims(patentNumber: string): Promise<{ abstract:
       claimsJson = (parts.length > 1 ? parts : [claimsText])
         .map((t, i) => ({ claim_sequence: i + 1, claim_text: t.trim() }))
     }
+    console.log(`[claims] US${bare} → abstract=${!!abstract} claims=${claimsJson?.length ?? 0}`)
     return { abstract, claimsJson }
-  } catch { return { abstract: null, claimsJson: null } }
+  } catch (e) {
+    console.error('[claims] fetchAbstractAndClaims error:', e)
+    return { abstract: null, claimsJson: null }
+  }
 }
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -411,9 +416,11 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
     const appMeta = record.applicationMetaData || {}
     const appNum  = record.applicationNumberText || patent.applicationNumber
 
+    const newPatentNumEarly = appMeta.patentNumber || patent.patentNumber
+
     const [continuity, abstractData, documents] = await Promise.all([
       appNum ? fetchContinuity(appNum) : Promise.resolve(null),
-      patent.patentNumber ? fetchAbstractAndClaims(patent.patentNumber) : Promise.resolve({ abstract: null, claimsJson: null }),
+      newPatentNumEarly ? fetchAbstractAndClaims(newPatentNumEarly) : Promise.resolve({ abstract: null, claimsJson: null }),
       appNum ? fetchDocuments(appNum) : Promise.resolve([]),
     ])
 
@@ -436,7 +443,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
     const newType      = mapType(appMeta.applicationTypeCode || '')
     const newTitle     = appMeta.inventionTitle || appMeta.patentTitle || patent.title
     const newAssignee  = appMeta.applicantBag?.[0]?.applicantNameText || appMeta.firstApplicantName || null
-    const newPatentNum = appMeta.patentNumber || patent.patentNumber
+    const newPatentNum = newPatentNumEarly
 
     const existing = await prisma.patent.findUnique({
       where: { id: patent.id },
