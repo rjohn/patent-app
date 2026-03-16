@@ -169,12 +169,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     })
     if (!patent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // ── 1. DB cache — return instantly if we already have both
-    if (patent.abstract && patent.claimsJson) {
+    // ── 1. DB cache — return if we have claims stored (abstract optional)
+    if (patent.claimsJson && (patent.claimsJson as any[]).length > 0) {
       const claims = (patent.claimsJson as any[])
         .map((c: any) => (typeof c === 'string' ? c : c.claim_text || '').trim())
         .filter(Boolean)
-      return NextResponse.json({ abstract: patent.abstract, claims, source: 'stored' })
+      return NextResponse.json({ abstract: patent.abstract || null, claims, source: 'stored' })
     }
 
     // ── 1b. Abstract stored in rawJsonData from ODP refresh
