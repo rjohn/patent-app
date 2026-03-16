@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   FileText, GitBranch, CalendarClock, AlertTriangle,
-  TrendingUp, Clock, CheckCircle2, Loader2, RefreshCw, Sparkles
+  TrendingUp, Clock, CheckCircle2, Loader2, RefreshCw, Sparkles, Search
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/auth-context'
 import { useTheme } from '@/context/theme-context'
 
@@ -114,6 +115,7 @@ export default function DashboardPage() {
           <p className="text-muted mt-1">Here's your Plaz4 IP portfolio overview</p>
         </div>
         <div className="flex items-center gap-2">
+          <PatentSearch />
           <Link href="/import" className="btn-secondary flex items-center gap-2 text-sm">Import Data</Link>
           <Link href="/lookup" className="btn-primary flex items-center gap-2 text-sm">+ Add Patent</Link>
         </div>
@@ -396,6 +398,118 @@ function MiniStat({ icon, label, value, color }: { icon: React.ReactNode; label:
       {icon}
       <span className="text-sm text-patent-muted truncate">{label}</span>
       <span className="ml-auto font-bold tabular-nums" style={{ color: colorMap[color] || colorMap.sky }}>{value}</span>
+    </div>
+  )
+}
+
+function PatentSearch() {
+  const router = useRouter()
+  const { theme } = useTheme()
+  const light = theme === 'light'
+  const [query, setQuery]       = useState('')
+  const [results, setResults]   = useState<{ id: string; patentNumber: string | null; applicationNumber: string | null; epNumber: string | null; jurisdiction: string | null; title: string }[]>([])
+  const [loading, setLoading]   = useState(false)
+  const [open, setOpen]         = useState(false)
+  const [active, setActive]     = useState(-1)
+  const inputRef  = useRef<HTMLInputElement>(null)
+  const wrapRef   = useRef<HTMLDivElement>(null)
+
+  const search = useCallback(async (q: string) => {
+    if (!q.trim()) { setResults([]); setOpen(false); return }
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/patents?q=${encodeURIComponent(q)}&pageSize=8`)
+      if (!res.ok) return
+      const data = await res.json()
+      setResults(data.patents || [])
+      setOpen(true)
+      setActive(-1)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => search(query), 250)
+    return () => clearTimeout(t)
+  }, [query, search])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+
+  function navigate(id: string) {
+    router.push(`/patents/${id}`)
+    setQuery('')
+    setOpen(false)
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!open || results.length === 0) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, results.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)) }
+    else if (e.key === 'Enter' && active >= 0) { navigate(results[active].id) }
+    else if (e.key === 'Escape') { setOpen(false); inputRef.current?.blur() }
+  }
+
+  function displayNum(p: typeof results[0]) {
+    if (p.jurisdiction === 'EP') return p.epNumber ? `EP${p.epNumber}` : (p.applicationNumber || '—')
+    return p.patentNumber || p.applicationNumber || '—'
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <div className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm"
+        style={{
+          background: light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.07)',
+          border: `1px solid ${light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'}`,
+          width: 220,
+        }}>
+        {loading
+          ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 animate-spin" style={{ color: 'var(--patent-muted)' }} />
+          : <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--patent-muted)' }} />}
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          onKeyDown={onKeyDown}
+          placeholder="Search patents…"
+          className="bg-transparent outline-none w-full text-sm"
+          style={{ color: light ? '#0F172A' : 'white' }}
+        />
+      </div>
+
+      {open && results.length > 0 && (
+        <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-50 shadow-2xl"
+          style={{
+            width: 380,
+            background: light ? '#fff' : '#1a1f2e',
+            border: `1px solid ${light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
+          }}>
+          {results.map((p, i) => (
+            <button key={p.id} onMouseDown={() => navigate(p.id)}
+              onMouseEnter={() => setActive(i)}
+              className="w-full text-left px-4 py-2.5 flex items-start gap-3 transition-colors"
+              style={{ background: i === active ? (light ? 'rgba(26,91,197,0.07)' : 'rgba(74,144,217,0.12)') : 'transparent' }}>
+              <span className="font-mono text-xs mt-0.5 w-24 flex-shrink-0 truncate"
+                style={{ color: 'var(--patent-sky)' }}>
+                {displayNum(p)}
+              </span>
+              <span className="text-sm leading-snug line-clamp-2"
+                style={{ color: light ? '#334155' : 'rgba(255,255,255,0.85)' }}>
+                {p.title}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
