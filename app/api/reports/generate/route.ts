@@ -51,27 +51,59 @@ function buildGrantedReport(patents: any[], date: string, companyName: string): 
     { label: 'Expiry',      width: 84  },
   ]
 
+  const usPatents = patents.filter(p => (p.jurisdiction || 'US') === 'US')
+  const epPatents = patents.filter(p => p.jurisdiction === 'EP')
+
   const pdf = newPDF()
   pdf.startDocument().newPage()
   pdf.header('Granted Patent Portfolio', `Generated: ${date} · ${patents.length} patents`, companyName)
   pdf.statBoxes([
     { value: patents.length, label: 'Granted Patents' },
-    { value: patents.filter(p => p.jurisdiction === 'US').length, label: 'US' },
-    { value: patents.filter(p => p.jurisdiction === 'EP').length, label: 'EP' },
+    { value: usPatents.length, label: 'US' },
+    { value: epPatents.length, label: 'EP' },
   ])
-  pdf.tableHeader(cols)
 
   let page = 1
-  patents.forEach((p, i) => {
-    if (pdf.y > 560) { pdf.footer(page++) }
-    pdf.tableRow([
-      p.patentNumber || p.publicationNumber || p.applicationNumber || '-',
-      p.title,
-      fmt(p.filingDate),
-      fmt(p.grantDate),
-      fmt(p.expirationDate),
-    ], cols, i)
-  })
+
+  // ── US Patents ──
+  pdf.sectionTitle(`US Patents (${usPatents.length})`)
+  if (usPatents.length === 0) {
+    pdf.text('No granted US patents.', { x: 22, y: pdf.y, size: 10, color: '#6B7280' })
+    pdf.moveY(14)
+  } else {
+    pdf.tableHeader(cols)
+    usPatents.forEach((p, i) => {
+      if (pdf.y > 560) { pdf.footer(page++) }
+      pdf.tableRow([
+        p.patentNumber || p.applicationNumber || '-',
+        p.title,
+        fmt(p.filingDate),
+        fmt(p.grantDate),
+        fmt(p.expirationDate),
+      ], cols, i)
+    })
+  }
+
+  // ── EP Patents ──
+  if (pdf.y > 480) { pdf.footer(page++) }
+  pdf.sectionTitle(`European Patents (${epPatents.length})`)
+  if (epPatents.length === 0) {
+    pdf.text('No granted European patents.', { x: 22, y: pdf.y, size: 10, color: '#6B7280' })
+    pdf.moveY(14)
+  } else {
+    pdf.tableHeader(cols)
+    epPatents.forEach((p, i) => {
+      if (pdf.y > 560) { pdf.footer(page++) }
+      pdf.tableRow([
+        p.epNumber ? `EP${p.epNumber}` : (p.publicationNumber || p.applicationNumber || '-'),
+        p.title,
+        fmt(p.filingDate),
+        fmt(p.grantDate),
+        fmt(p.expirationDate),
+      ], cols, i)
+    })
+  }
+
   pdf.footer(page)
   return pdf.build()
 }
