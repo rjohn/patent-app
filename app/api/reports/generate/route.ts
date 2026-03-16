@@ -85,6 +85,7 @@ function buildGrantedReport(patents: any[], date: string, companyName: string): 
   }
 
   // ── EP Patents ──
+  pdf.moveY(16)
   if (pdf.y > 480) { pdf.footer(page++) }
   pdf.sectionTitle(`European Patents (${epPatents.length})`)
   if (epPatents.length === 0) {
