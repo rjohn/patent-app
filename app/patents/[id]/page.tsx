@@ -974,6 +974,15 @@ export default function PatentDetailPage({ params }: { params: any }) {
 
   const gPatentsUrl = googlePatentsUrl(p.patentNumber)
 
+  // Find the granted patent PDF in the stored documentBag
+  const docBag: any[] = raw?.documentBag || []
+  const grantDoc = docBag.find(
+    (d: any) => /grant|issue/i.test(d.documentCode || '') && d.downloadUrl && /pdf/i.test(d.mimeType || '')
+  )
+  const grantPdfUrl = grantDoc?.downloadUrl
+    ? `/api/patents/${p.id}/documents/${grantDoc.documentIdentifier || 'grant'}/download?url=${encodeURIComponent(grantDoc.downloadUrl)}`
+    : null
+
   return (
     <div className="p-8 animate-fade-in max-w-5xl">
 
@@ -1086,11 +1095,10 @@ export default function PatentDetailPage({ params }: { params: any }) {
                 <ExternalLink className="w-3.5 h-3.5" /> Google Patents
               </a>
             )}
-            {p.applicationNumber && (
-              <a href={`https://patentcenter.uspto.gov/applications/${(p.applicationNumber || '').replace(/[\/,\s]/g, '')}`}
-                target="_blank" rel="noopener noreferrer"
+            {grantPdfUrl && (
+              <a href={grantPdfUrl} target="_blank" rel="noopener noreferrer"
                 className="btn-ghost flex items-center gap-1.5 text-xs">
-                <ExternalLink className="w-3.5 h-3.5" /> Patent Center
+                <ExternalLink className="w-3.5 h-3.5" /> Patent PDF
               </a>
             )}
             {(p.rawJsonData || p.rawXmlData) && (
