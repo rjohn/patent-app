@@ -100,10 +100,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // ── 3. Merge: API is authoritative; events fill gaps ──────────────────────
     const resolvedPaid = new Map<string, Date | null>()
-    for (const [ft, val] of paidFromApi)   resolvedPaid.set(ft, val.paidDate)
-    for (const [ft, date] of paidFromEvents) {
+    Array.from(paidFromApi.entries()).forEach(([ft, val]) => resolvedPaid.set(ft, val.paidDate))
+    Array.from(paidFromEvents.entries()).forEach(([ft, date]) => {
       if (!resolvedPaid.has(ft)) resolvedPaid.set(ft, date)
-    }
+    })
 
     // ── 4. Clear and regenerate ───────────────────────────────────────────────
     await prisma.maintenanceFee.deleteMany({ where: { patentId: id } })
@@ -138,8 +138,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const sources = {
       eventsChecked: events.length,
-      paidFromEvents: [...paidFromEvents.keys()],
-      paidFromApi:   [...paidFromApi.keys()],
+      paidFromEvents: Array.from(paidFromEvents.keys()),
+      paidFromApi:   Array.from(paidFromApi.keys()),
     }
 
     return NextResponse.json({ fees: created, count: created.length, sources })

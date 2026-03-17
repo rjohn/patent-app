@@ -110,7 +110,7 @@ function FeesTab({ patent, onFeesGenerated }: {
         </p>
       </div>
       {patent.grantDate && (
-        <button onClick={generate} disabled={generating}
+        <button onClick={() => generate()} disabled={generating}
           className="btn-primary mx-auto flex items-center gap-2 px-4 py-2 text-sm">
           {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
           Generate Maintenance Fees
@@ -157,7 +157,7 @@ function FeesTab({ patent, onFeesGenerated }: {
         </table>
       </div>
       <div className="flex justify-end">
-        <button onClick={generate} disabled={generating}
+        <button onClick={() => generate()} disabled={generating}
           className="btn-ghost text-xs flex items-center gap-1.5">
           {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <DollarSign className="w-3 h-3" />}
           Regenerate Fees

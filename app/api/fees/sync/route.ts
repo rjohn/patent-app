@@ -35,7 +35,7 @@ export async function POST() {
       where: {
         maintenanceFees: { some: {} },
         grantDate: { not: null },
-        rawJsonData: { not: null },
+        NOT: { rawJsonData: { equals: 'DbNull' as any } },
         OR: [{ jurisdiction: 'US' }, { jurisdiction: null }],
       },
       select: { id: true, grantDate: true, rawJsonData: true },
