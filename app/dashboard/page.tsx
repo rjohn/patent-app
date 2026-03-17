@@ -71,12 +71,12 @@ function useGreeting(name: string) {
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const [data, setData]     = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState<string | null>(null)
+  const [data, setData]         = useState<DashboardData | null>(null)
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
+  const [firstName, setFirstName] = useState('')
 
-  const firstName = (user?.user_metadata?.full_name || user?.email?.split('@')[0] || '').split(' ')[0]
-  const greeting  = useGreeting(firstName || 'there')
+  const greeting = useGreeting(firstName || 'there')
 
   useEffect(() => {
     fetch('/api/dashboard')
@@ -84,6 +84,15 @@ export default function DashboardPage() {
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
+
+    fetch('/api/me')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const name = d.name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || ''
+        setFirstName(name.split(' ')[0])
+      })
+      .catch(() => {})
   }, [])
 
   if (loading) return (
