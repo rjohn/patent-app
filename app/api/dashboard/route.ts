@@ -4,6 +4,11 @@ import { prisma } from '@/lib/prisma'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  const dbUrl = process.env.DATABASE_URL ?? '(not set)'
+  const directUrl = process.env.DIRECT_URL ?? '(not set)'
+  console.log('[DB DEBUG] DATABASE_URL:', dbUrl.replace(/:([^:@]+)@/, ':***@'))
+  console.log('[DB DEBUG] DIRECT_URL:', directUrl.replace(/:([^:@]+)@/, ':***@'))
+
   try {
     const now       = new Date()
     const yearEnd   = new Date(now.getFullYear(), 11, 31)
