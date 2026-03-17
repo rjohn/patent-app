@@ -357,11 +357,12 @@ export default function PatentsPage() {
                 <tr key={p.id} className="group cursor-pointer" style={{ opacity: loading ? 0.5 : 1, transition: 'opacity 0.15s' }}>
                   {/* Patent / App No. */}
                   <td>
-                    <div className="font-mono text-xs leading-tight" style={{ color: 'var(--patent-sky)' }}>
+                    <Link href={`/patents/${p.id}`} className="font-mono text-xs leading-tight hover:underline"
+                      style={{ color: 'var(--patent-sky)' }}>
                       {p.jurisdiction === 'EP'
                         ? (p.epNumber ? `EP${p.epNumber}` : p.publicationNumber || '—')
                         : (p.patentNumber || p.applicationNumber || '—')}
-                    </div>
+                    </Link>
                     {p.jurisdiction !== 'EP' && p.patentNumber && p.applicationNumber && (
                       <div className="text-[10px] mt-0.5 font-mono" style={{ color: 'var(--patent-muted)' }}>
                         {p.applicationNumber}

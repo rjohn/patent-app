@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { AlertTriangle, CheckCircle2, Clock, DollarSign, Loader2, AlertCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, DollarSign, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import { useTheme } from '@/context/theme-context'
 
 interface DeadlineItem {
@@ -40,6 +40,8 @@ export default function DeadlinesPage() {
   const [error, setError]         = useState<string | null>(null)
   const [filter, setFilter]       = useState<FilterType>('ALL')
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
+  const [syncing, setSyncing]         = useState(false)
+  const [syncResult, setSyncResult]   = useState<string | null>(null)
 
   const fetchDeadlines = useCallback(async () => {
     setLoading(true); setError(null)
@@ -56,6 +58,21 @@ export default function DeadlinesPage() {
   }, [])
 
   useEffect(() => { fetchDeadlines() }, [fetchDeadlines])
+
+  const syncFeeStatus = async () => {
+    setSyncing(true); setSyncResult(null)
+    try {
+      const res = await fetch('/api/fees/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setSyncResult('Sync failed'); return }
+      setSyncResult(`Synced ${data.synced} patents · ${data.updated} fees updated`)
+      if (data.updated > 0) fetchDeadlines()
+    } catch {
+      setSyncResult('Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const markAsPaid = async (id: string) => {
     setMarkingPaid(id)
@@ -96,9 +113,21 @@ export default function DeadlinesPage() {
 
   return (
     <div className="p-8 animate-fade-in">
-      <div className="mb-8">
-        <h1 className="page-title">Deadlines & Maintenance Fees</h1>
-        <p className="text-muted mt-1">Track USPTO maintenance fees and patent deadlines</p>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="page-title">Deadlines & Maintenance Fees</h1>
+          <p className="text-muted mt-1">Track USPTO maintenance fees and patent deadlines</p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <button onClick={syncFeeStatus} disabled={syncing}
+            className="btn-secondary text-sm flex items-center gap-2">
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {syncing ? 'Syncing…' : 'Sync Fee Status'}
+          </button>
+          {syncResult && (
+            <p className="text-xs text-patent-muted">{syncResult}</p>
+          )}
+        </div>
       </div>
 
       {/* Summary cards */}

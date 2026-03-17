@@ -76,17 +76,25 @@ function FeesTab({ patent, onFeesGenerated }: {
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError]     = useState<string | null>(null)
 
-  const generate = async () => {
-    setGenerating(true)
+  const generate = async (silent = false) => {
+    if (!silent) setGenerating(true)
     setGenError(null)
     try {
       const res = await fetch(`/api/patents/${patent.id}/generate-fees`, { method: 'POST' })
       const data = await res.json()
-      if (!res.ok) { setGenError(data.error || 'Failed to generate fees'); return }
+      if (!res.ok) { if (!silent) setGenError(data.error || 'Failed to generate fees'); return }
       onFeesGenerated(data.fees)
-    } catch { setGenError('Network error') }
-    finally { setGenerating(false) }
+    } catch { if (!silent) setGenError('Network error') }
+    finally { if (!silent) setGenerating(false) }
   }
+
+  // Auto-sync on mount if fees exist but none are PAID — stale records from before event-checking was added
+  useEffect(() => {
+    const fees = patent.maintenanceFees
+    if (fees.length > 0 && patent.rawJsonData && fees.every(f => f.status !== 'PAID')) {
+      generate(true)
+    }
+  }, [patent.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fees = patent.maintenanceFees
 

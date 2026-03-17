@@ -558,12 +558,35 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
     if (newGrantDate && newType === 'UTILITY') {
       const feeCount = await prisma.maintenanceFee.count({ where: { patentId: patent.id } })
       if (feeCount === 0) {
+        const PAYMENT_CODES: Record<string, string> = {
+          M1551: 'MAINTENANCE_3_5',  M2551: 'MAINTENANCE_3_5',  M3551: 'MAINTENANCE_3_5',
+          M1552: 'MAINTENANCE_7_5',  M2552: 'MAINTENANCE_7_5',  M3552: 'MAINTENANCE_7_5',
+          M1553: 'MAINTENANCE_11_5', M2553: 'MAINTENANCE_11_5', M3553: 'MAINTENANCE_11_5',
+        }
+        const eventBag: any[] = record.eventDataBag || []
+        const paidFees = new Map<string, Date | null>()
+        for (const ev of eventBag) {
+          const code = (ev.eventCode || '').toUpperCase().trim()
+          if (PAYMENT_CODES[code]) paidFees.set(PAYMENT_CODES[code], ev.eventDate ? new Date(ev.eventDate) : null)
+        }
+
         const fees = calculateMaintenanceFees(newGrantDate)
-        await Promise.allSettled(fees.map(fee =>
-          prisma.maintenanceFee.create({
-            data: { patentId: patent.id, feeType: fee.feeType as any, dueDate: fee.dueDate, gracePeriodEnd: fee.gracePeriodEnd, status: 'UPCOMING' }
+        const now  = new Date()
+        await Promise.allSettled(fees.map(fee => {
+          const isPaid = paidFees.has(fee.feeType)
+          const status = isPaid ? 'PAID'
+            : fee.gracePeriodEnd < now ? 'OVERDUE'
+            : fee.dueDate < now        ? 'DUE'
+            : 'UPCOMING'
+          return prisma.maintenanceFee.create({
+            data: {
+              patentId: patent.id, feeType: fee.feeType as any,
+              dueDate: fee.dueDate, gracePeriodEnd: fee.gracePeriodEnd,
+              status: status as any,
+              ...(isPaid ? { paidDate: paidFees.get(fee.feeType) ?? undefined } : {}),
+            }
           })
-        ))
+        }))
         changes.push('maintenance fees auto-generated')
       }
     }
