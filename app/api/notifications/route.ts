@@ -5,6 +5,11 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/notifications?supabaseId=xxx  — notifications where user is a recipient
 export async function GET(req: NextRequest) {
+  const dbUrl = process.env.DATABASE_URL ?? '(not set)'
+  const directUrl = process.env.DIRECT_URL ?? '(not set)'
+  console.log('[DB DEBUG] DATABASE_URL:', dbUrl.replace(/:([^:@]+)@/, ':***@'))
+  console.log('[DB DEBUG] DIRECT_URL:', directUrl.replace(/:([^:@]+)@/, ':***@'))
+
   try {
     const supabaseId = req.nextUrl.searchParams.get('supabaseId')
     if (!supabaseId) return NextResponse.json({ notifications: [], unread: 0 })
