@@ -43,22 +43,36 @@ export async function POST(req: NextRequest) {
     }
 
     // Create Supabase Auth user (passwordless — they sign in via magic link)
-    const { data: authData, error: authError } = await getSupabaseAdmin().auth.admin.createUser({
+    // If user already exists in Auth (e.g. prior failed attempt), look them up instead
+    const admin = getSupabaseAdmin()
+    let authUserId: string
+
+    const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email:         invite.email,
       email_confirm: true,
       user_metadata: { full_name: name || invite.name || '' },
     })
 
     if (authError) {
-      console.error('Supabase auth create user error:', authError)
-      return NextResponse.json({ error: authError.message }, { status: 500 })
+      if (!authError.message.toLowerCase().includes('already been registered')) {
+        console.error('Supabase auth create user error:', authError)
+        return NextResponse.json({ error: authError.message }, { status: 500 })
+      }
+      // Auth user already exists — find them by email
+      const { data: listData, error: listError } = await admin.auth.admin.listUsers()
+      if (listError) return NextResponse.json({ error: listError.message }, { status: 500 })
+      const existing = listData.users.find(u => u.email === invite.email)
+      if (!existing) return NextResponse.json({ error: 'Could not locate existing auth user' }, { status: 500 })
+      authUserId = existing.id
+    } else {
+      authUserId = authData.user.id
     }
 
     // Create DB user + mark invite accepted
     await prisma.$transaction([
       prisma.user.create({
         data: {
-          supabaseId: authData.user.id,
+          supabaseId: authUserId,
           email:      invite.email,
           name:       name || invite.name || null,
           role:       invite.role,
