@@ -334,6 +334,7 @@ function EnvInfoPanel() {
   const [info, setInfo]       = useState<EnvInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
+  const [reveal, setReveal]   = useState(false)
 
   useEffect(() => {
     fetch('/api/settings/env-info')
@@ -343,13 +344,30 @@ function EnvInfoPanel() {
       .finally(() => setLoading(false))
   }, [])
 
+  const display = (v: EnvVar) => {
+    if (!v?.set) return 'not set'
+    if (reveal) return v.value
+    if (v.value.length <= 8) return '••••••••'
+    return v.value.slice(0, 12) + '…' + v.value.slice(-4)
+  }
+
   return (
     <div className="card p-6">
-      <h2 className="section-title flex items-center gap-2 mb-4">
-        <Server className="w-4 h-4 text-patent-sky" /> Environment
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="section-title flex items-center gap-2">
+          <Server className="w-4 h-4 text-patent-sky" /> Environment
+        </h2>
+        {info && (
+          <button onClick={() => setReveal(v => !v)}
+            className="btn-ghost p-1.5 flex items-center gap-1.5 text-xs"
+            style={{ color: reveal ? 'var(--patent-sky)' : 'var(--patent-muted)' }}>
+            {reveal ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {reveal ? 'Hide' : 'Reveal'}
+          </button>
+        )}
+      </div>
       <p className="text-sm text-patent-muted mb-4">
-        Server-side environment variable status. Values are partially masked.
+        Server-side environment variable status.
       </p>
 
       {loading && (
@@ -373,9 +391,9 @@ function EnvInfoPanel() {
                 <div className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{ background: v?.set ? '#4ade80' : '#f87171' }} />
                 <span className="text-patent-muted w-44 flex-shrink-0 text-xs">{label}</span>
-                <span className="font-mono text-xs truncate"
+                <span className="font-mono text-xs break-all"
                   style={{ color: v?.set ? 'var(--patent-text)' : '#f87171' }}>
-                  {v?.set ? v.value : 'not set'}
+                  {display(v)}
                 </span>
               </div>
             )
