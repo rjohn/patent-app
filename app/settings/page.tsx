@@ -5,6 +5,7 @@ import {
   Settings, Users, Key, Bell, Shield, Save, CheckCircle2, Building2,
   UserPlus, Mail, Trash2, RefreshCw, Copy, Check, X,
   Loader2, AlertCircle, Clock, ChevronDown, Eye, EyeOff, KeyRound, Moon, Sun,
+  Server,
 } from 'lucide-react'
 import { useTheme } from '@/context/theme-context'
 
@@ -312,6 +313,75 @@ function ChangePasswordSection() {
            :           <><KeyRound className="w-4 h-4" /> Update password</>}
         </button>
       </form>
+    </div>
+  )
+}
+
+type EnvVar = { set: boolean; value: string }
+type EnvInfo = Record<string, EnvVar>
+
+const ENV_LABELS: Record<string, string> = {
+  DATABASE_URL:                  'Database URL',
+  NEXT_PUBLIC_SUPABASE_URL:      'Supabase URL',
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: 'Supabase Anon Key',
+  USPTO_API_KEY:                 'USPTO API Key',
+  EPO_OPS_KEY:                   'EPO OPS Key',
+  EPO_OPS_SECRET:                'EPO OPS Secret',
+  NEXT_PUBLIC_APP_URL:           'App URL',
+}
+
+function EnvInfoPanel() {
+  const [info, setInfo]       = useState<EnvInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/settings/env-info')
+      .then(r => r.json())
+      .then(d => setInfo(d))
+      .catch(() => setError('Failed to load'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  return (
+    <div className="card p-6">
+      <h2 className="section-title flex items-center gap-2 mb-4">
+        <Server className="w-4 h-4 text-patent-sky" /> Environment
+      </h2>
+      <p className="text-sm text-patent-muted mb-4">
+        Server-side environment variable status. Values are partially masked.
+      </p>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-patent-muted">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center gap-2 text-xs p-3 rounded-lg"
+          style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
+        </div>
+      )}
+      {info && (
+        <div className="space-y-2">
+          {Object.entries(ENV_LABELS).map(([key, label]) => {
+            const v = info[key]
+            return (
+              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg text-sm"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: v?.set ? '#4ade80' : '#f87171' }} />
+                <span className="text-patent-muted w-44 flex-shrink-0 text-xs">{label}</span>
+                <span className="font-mono text-xs truncate"
+                  style={{ color: v?.set ? 'var(--patent-text)' : '#f87171' }}>
+                  {v?.set ? v.value : 'not set'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -655,6 +725,9 @@ export default function SettingsPage() {
             ))}
           </div>
         </div>
+
+        {/* Environment Info */}
+        <EnvInfoPanel />
 
         {/* Security */}
         <ChangePasswordSection />
