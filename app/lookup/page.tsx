@@ -550,22 +550,28 @@ function CompanySearch() {
   const [saving, setSaving]       = useState(false)
   const [saveResults, setSaveResults] = useState<Record<string, 'saved' | 'duplicate' | 'error'>>({})
 
-  const search = async (start = 0) => {
-    if (!query.trim()) return
+  const search = async (start = 0, overrideQuery?: string) => {
+    const term = overrideQuery ?? query.trim()
+    if (!term) return
     setLoading(true); setError(null); setSelected(new Set()); setSaveResults({})
     try {
-      const res  = await fetch(`/api/patents/company-search?company=${encodeURIComponent(query.trim())}&start=${start}&limit=${PAGE_SIZE}`)
+      const res  = await fetch(`/api/patents/company-search?company=${encodeURIComponent(term)}&start=${start}&limit=${PAGE_SIZE}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Search failed')
       setResults(data.patents)
       setTotal(data.total)
       setPage(start / PAGE_SIZE)
-      setSearched(query.trim())
+      setSearched(term)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Search failed')
     } finally {
       setLoading(false)
     }
+  }
+
+  const searchAssignee = (assignee: string) => {
+    setQuery(assignee)
+    search(0, assignee)
   }
 
   const toggleSelect = (appNum: string) =>
@@ -703,7 +709,17 @@ function CompanySearch() {
                       <td className="max-w-xs">
                         <p className="text-sm text-white line-clamp-2">{p.title}</p>
                       </td>
-                      <td className="text-xs text-patent-muted max-w-[140px] truncate">{p.assignee || '—'}</td>
+                      <td className="max-w-[140px]" onClick={e => e.stopPropagation()}>
+                        {p.assignee
+                          ? <button
+                              onClick={() => searchAssignee(p.assignee!)}
+                              className="text-xs truncate block max-w-full text-left hover:underline"
+                              style={{ color: 'var(--patent-sky)' }}
+                              title={`Search all patents for "${p.assignee}"`}
+                            >{p.assignee}</button>
+                          : <span className="text-xs text-patent-muted">—</span>
+                        }
+                      </td>
                       <td className="text-xs font-mono text-patent-muted whitespace-nowrap">{p.filingDate?.slice(0,10) || '—'}</td>
                       <td className="text-xs font-mono text-patent-muted whitespace-nowrap">{p.grantDate?.slice(0,10) || '—'}</td>
                       <td><span className={STATUS_BADGE[p.status] || 'status-badge'}>{p.status}</span></td>
