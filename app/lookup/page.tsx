@@ -550,12 +550,15 @@ function CompanySearch() {
   const [saving, setSaving]       = useState(false)
   const [saveResults, setSaveResults] = useState<Record<string, 'saved' | 'duplicate' | 'error'>>({})
 
-  const search = async (start = 0, overrideQuery?: string) => {
+  const [exactMode, setExactMode] = useState(false)
+
+  const search = async (start = 0, overrideQuery?: string, exact?: boolean) => {
     const term = overrideQuery ?? query.trim()
     if (!term) return
     setLoading(true); setError(null); setSelected(new Set()); setSaveResults({})
     try {
-      const res  = await fetch(`/api/patents/company-search?company=${encodeURIComponent(term)}&start=${start}&limit=${PAGE_SIZE}`)
+      const isExact = exact ?? exactMode
+      const res  = await fetch(`/api/patents/company-search?company=${encodeURIComponent(term)}&start=${start}&limit=${PAGE_SIZE}${isExact ? '&exact=true' : ''}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Search failed')
       setResults(data.patents)
@@ -571,7 +574,8 @@ function CompanySearch() {
 
   const searchAssignee = (assignee: string) => {
     setQuery(assignee)
-    search(0, assignee)
+    setExactMode(true)
+    search(0, assignee, true)
   }
 
   const toggleSelect = (appNum: string) =>
@@ -623,11 +627,11 @@ function CompanySearch() {
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-patent-muted pointer-events-none" />
             <input type="text" value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && search(0)}
+              onKeyDown={e => { if (e.key === 'Enter') { setExactMode(false); search(0, undefined, false) } }}
               placeholder="e.g. Acme Corp, Apple Inc, Plasmology4"
               className="input pl-9 w-full" autoFocus />
           </div>
-          <button onClick={() => search(0)} disabled={loading || !query.trim()} className="btn-primary flex items-center gap-2 px-5">
+          <button onClick={() => { setExactMode(false); search(0, undefined, false) }} disabled={loading || !query.trim()} className="btn-primary flex items-center gap-2 px-5">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             {loading ? 'Searching…' : 'Search'}
           </button>

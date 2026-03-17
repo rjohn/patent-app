@@ -23,6 +23,7 @@ function mapStatus(s: string): string {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const company = searchParams.get('company')?.trim()
+  const exact   = searchParams.get('exact') === 'true'
   const start   = parseInt(searchParams.get('start') || '0')
   const limit   = Math.min(parseInt(searchParams.get('limit') || '25'), 50)
 
@@ -30,8 +31,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const url = new URL(`${ODP_BASE}/search`)
-    // Search by applicant name — wildcard for partial matches
-    url.searchParams.set('q', `applicationMetaData.applicantBag.applicantNameText:*${company}*`)
+    // Exact phrase match for assignee drill-down; wildcard for free-text search
+    const q = exact
+      ? `applicationMetaData.applicantBag.applicantNameText:"${company}"`
+      : `applicationMetaData.applicantBag.applicantNameText:*${company}*`
+    url.searchParams.set('q', q)
     url.searchParams.set('limit', String(limit))
     url.searchParams.set('start', String(start))
 
