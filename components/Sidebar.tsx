@@ -13,7 +13,6 @@ import {
   Settings,
   ChevronRight,
   SearchCode,
-  Globe,
   Database,
   LogOut,
 } from 'lucide-react'
@@ -28,8 +27,7 @@ const NAV_ITEMS = [
   { href: '/families',     label: 'Patent Families',      icon: GitBranch },
   { href: '/deadlines',    label: 'Deadlines & Fees',     icon: CalendarClock },
   { href: '/reports',      label: 'Reports',              icon: BarChart3 },
-  { href: '/lookup',       label: 'Add US Patent',        icon: SearchCode },
-  { href: '/ep-lookup',    label: 'Add EP Patent',        icon: Globe },
+  { href: '/lookup',       label: 'Add Patent',           icon: SearchCode },
   { href: '/import',       label: 'Import Data',          icon: Upload },
   { href: '/manage',       label: 'Manage Data',          icon: Database },
 ]
