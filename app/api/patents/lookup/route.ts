@@ -39,6 +39,7 @@ async function searchByPatentNumber(patentNumber: string): Promise<any | null> {
   url.searchParams.set('limit', '1')
 
   const res = await fetch(url.toString(), { headers: odpHeaders() })
+  if (res.status === 404) return null   // no match — fall through to app-number search
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`ODP search error ${res.status}: ${text}`)
@@ -173,7 +174,7 @@ export async function GET(req: NextRequest) {
   try {
     const normalized = normalizePatentNumber(rawNumber)
 
-    // Step 1: Search by patent number
+    // Step 1: Search by patent number (returns null on 404)
     let searchResult = await searchByPatentNumber(normalized)
     let bag = searchResult?.patentFileWrapperDataBag || []
 

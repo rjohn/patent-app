@@ -4,12 +4,12 @@ import { useState, useRef, KeyboardEvent } from 'react'
 import {
   Search, Plus, CheckCircle2, AlertCircle, Loader2, X,
   ChevronDown, ChevronUp, Tag, Users, Building2, Calendar,
-  FileText, GitBranch, ExternalLink,
+  FileText, GitBranch, ExternalLink, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
-type Mode = 'US' | 'EP'
+type Mode = 'US' | 'EP' | 'COMPANY'
 
 function MetaItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
@@ -516,39 +516,289 @@ function EPLookup() {
   )
 }
 
+// ── Company search ────────────────────────────────────────────────────────────
+
+interface CompanyPatent {
+  applicationNumber: string
+  patentNumber:      string | null
+  title:             string
+  status:            string
+  type:              string
+  filingDate:        string | null
+  grantDate:         string | null
+  assignee:          string | null
+  inventors:         string[]
+  inPortfolio:       boolean
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  GRANTED: 'status-granted', PENDING: 'status-pending',
+  ABANDONED: 'status-abandoned', EXPIRED: 'status-expired', PUBLISHED: 'status-published',
+}
+
+const PAGE_SIZE = 25
+
+function CompanySearch() {
+  const [query, setQuery]         = useState('')
+  const [results, setResults]     = useState<CompanyPatent[]>([])
+  const [total, setTotal]         = useState(0)
+  const [page, setPage]           = useState(0)
+  const [searched, setSearched]   = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [selected, setSelected]   = useState<Set<string>>(new Set())
+  const [saving, setSaving]       = useState(false)
+  const [saveResults, setSaveResults] = useState<Record<string, 'saved' | 'duplicate' | 'error'>>({})
+
+  const search = async (start = 0) => {
+    if (!query.trim()) return
+    setLoading(true); setError(null); setSelected(new Set()); setSaveResults({})
+    try {
+      const res  = await fetch(`/api/patents/company-search?company=${encodeURIComponent(query.trim())}&start=${start}&limit=${PAGE_SIZE}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Search failed')
+      setResults(data.patents)
+      setTotal(data.total)
+      setPage(start / PAGE_SIZE)
+      setSearched(query.trim())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Search failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleSelect = (appNum: string) =>
+    setSelected(prev => { const next = new Set(prev); next.has(appNum) ? next.delete(appNum) : next.add(appNum); return next })
+
+  const toggleAll = () =>
+    setSelected(selected.size === results.length ? new Set() : new Set(results.map(p => p.applicationNumber)))
+
+  const saveSelected = async () => {
+    const toSave = results.filter(p => selected.has(p.applicationNumber) && !p.inPortfolio)
+    if (!toSave.length) return
+    setSaving(true)
+    for (const p of toSave) {
+      try {
+        const res = await fetch('/api/patents/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            patent: {
+              patent_number:      p.patentNumber,
+              application_number: p.applicationNumber,
+              title:              p.title,
+              status:             p.status,
+              type:               p.type,
+              filing_date:        p.filingDate,
+              grant_date:         p.grantDate,
+              inventors:          p.inventors,
+              assignee:           p.assignee,
+              cpc_codes:          [],
+            }
+          }),
+        })
+        setSaveResults(prev => ({ ...prev, [p.applicationNumber]: res.status === 409 ? 'duplicate' : res.ok ? 'saved' : 'error' }))
+      } catch {
+        setSaveResults(prev => ({ ...prev, [p.applicationNumber]: 'error' }))
+      }
+    }
+    setSaving(false)
+    setSelected(new Set())
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  return (
+    <>
+      <div className="card p-5 mb-6">
+        <div className="flex gap-3">
+          <div className="flex-1 relative">
+            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-patent-muted pointer-events-none" />
+            <input type="text" value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && search(0)}
+              placeholder="e.g. Acme Corp, Apple Inc, Plasmology4"
+              className="input pl-9 w-full" autoFocus />
+          </div>
+          <button onClick={() => search(0)} disabled={loading || !query.trim()} className="btn-primary flex items-center gap-2 px-5">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            {loading ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+        <p className="text-xs text-patent-muted mt-2">
+          Searches USPTO applicant name — partial matches supported · Data from <span style={{ color: 'var(--patent-sky)' }}>api.uspto.gov</span>
+        </p>
+      </div>
+
+      {error && (
+        <div className="card p-4 mb-5 flex items-center gap-3" style={{ borderColor: 'rgba(239,68,68,0.3)' }}>
+          <AlertCircle className="w-5 h-5 flex-shrink-0" style={{ color: '#f87171' }} />
+          <p className="text-sm" style={{ color: '#f87171' }}>{error}</p>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm text-patent-muted">
+              <span className="text-white font-medium">{total.toLocaleString()}</span> results for &ldquo;{searched}&rdquo;
+              {totalPages > 1 && <span> · page {page + 1} of {totalPages}</span>}
+            </div>
+            <div className="flex items-center gap-3">
+              {selected.size > 0 && (
+                <button onClick={saveSelected} disabled={saving}
+                  className="btn-primary text-sm flex items-center gap-2">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {saving ? 'Adding…' : `Add Selected (${selected.size})`}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="card overflow-hidden mb-4">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 36 }}>
+                    <input type="checkbox"
+                      checked={selected.size === results.length && results.length > 0}
+                      onChange={toggleAll}
+                      className="cursor-pointer" />
+                  </th>
+                  <th>Patent / App No.</th>
+                  <th>Title</th>
+                  <th>Assignee</th>
+                  <th>Filed</th>
+                  <th>Granted</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map(p => {
+                  const result    = saveResults[p.applicationNumber]
+                  const managed   = p.inPortfolio || result === 'saved'
+                  const isDisabled = managed || !!result
+                  return (
+                    <tr key={p.applicationNumber}
+                      className={!isDisabled ? 'cursor-pointer' : ''}
+                      style={{ opacity: managed ? 0.55 : 1 }}
+                      onClick={() => !isDisabled && toggleSelect(p.applicationNumber)}>
+                      <td onClick={e => e.stopPropagation()}>
+                        <input type="checkbox"
+                          checked={selected.has(p.applicationNumber)}
+                          disabled={isDisabled}
+                          onChange={() => toggleSelect(p.applicationNumber)}
+                          className="cursor-pointer" />
+                      </td>
+                      <td>
+                        <div className="font-mono text-xs" style={{ color: 'var(--patent-sky)' }}>
+                          {p.patentNumber || p.applicationNumber}
+                        </div>
+                        {p.patentNumber && (
+                          <div className="font-mono text-[10px] mt-0.5" style={{ color: 'var(--patent-muted)' }}>{p.applicationNumber}</div>
+                        )}
+                      </td>
+                      <td className="max-w-xs">
+                        <p className="text-sm text-white line-clamp-2">{p.title}</p>
+                      </td>
+                      <td className="text-xs text-patent-muted max-w-[140px] truncate">{p.assignee || '—'}</td>
+                      <td className="text-xs font-mono text-patent-muted whitespace-nowrap">{p.filingDate?.slice(0,10) || '—'}</td>
+                      <td className="text-xs font-mono text-patent-muted whitespace-nowrap">{p.grantDate?.slice(0,10) || '—'}</td>
+                      <td><span className={STATUS_BADGE[p.status] || 'status-badge'}>{p.status}</span></td>
+                      <td className="whitespace-nowrap">
+                        {(p.inPortfolio || result === 'saved') && (
+                          <span className="flex items-center gap-1 text-xs" style={{ color: '#4ade80' }}>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> In portfolio
+                          </span>
+                        )}
+                        {result === 'error' && <AlertCircle className="w-4 h-4 text-red-400" />}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-patent-muted">
+                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total.toLocaleString()}
+              </p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => search(Math.max(0, page - 1) * PAGE_SIZE)} disabled={page === 0 || loading}
+                  className="btn-ghost text-sm flex items-center gap-1" style={{ opacity: page === 0 ? 0.4 : 1 }}>
+                  <ChevronLeft className="w-4 h-4" /> Prev
+                </button>
+                <span className="text-xs text-patent-muted">Page {page + 1} of {totalPages}</span>
+                <button onClick={() => search((page + 1) * PAGE_SIZE)} disabled={page >= totalPages - 1 || loading}
+                  className="btn-ghost text-sm flex items-center gap-1" style={{ opacity: page >= totalPages - 1 ? 0.4 : 1 }}>
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!loading && !error && results.length === 0 && (
+        <div className="text-center py-20">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: 'rgba(45,90,158,0.2)', border: '1px solid rgba(74,144,217,0.2)' }}>
+            <Building2 className="w-7 h-7" style={{ color: 'rgba(74,144,217,0.5)' }} />
+          </div>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }} className="font-medium mb-1">Search by company or assignee name</p>
+          <p className="text-muted">Returns all USPTO patents filed by that company</p>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Combined page ─────────────────────────────────────────────────────────────
+
+const MODE_CONFIG: { mode: Mode; flag: string; label: string }[] = [
+  { mode: 'US',      flag: '🇺🇸', label: 'United States' },
+  { mode: 'EP',      flag: '🇪🇺', label: 'European Patent' },
+  { mode: 'COMPANY', flag: '🔍', label: 'Research' },
+]
 
 export default function AddPatentPage() {
   const [mode, setMode] = useState<Mode>('US')
 
+  const subtitle = {
+    US:      'Fetch patent data live from the USPTO Open Data Portal and add to your portfolio',
+    EP:      'Look up an EP patent by number and add it to your portfolio',
+    COMPANY: 'Search USPTO by company or assignee name and bulk-add patents to your portfolio',
+  }[mode]
+
   return (
-    <div className="p-8 animate-fade-in max-w-4xl">
+    <div className={`p-8 animate-fade-in ${mode === 'COMPANY' ? '' : 'max-w-4xl'}`}>
       <div className="mb-8">
         <h1 className="page-title">Add Patent</h1>
-        <p className="text-muted mt-1">
-          {mode === 'US'
-            ? 'Fetch patent data live from the USPTO Open Data Portal and add to your portfolio'
-            : 'Look up an EP patent by number and add it to your portfolio'}
-        </p>
+        <p className="text-muted mt-1">{subtitle}</p>
       </div>
 
-      {/* US / EP toggle */}
+      {/* Mode toggle */}
       <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit" style={{ background: 'rgba(255,255,255,0.05)' }}>
-        {(['US', 'EP'] as Mode[]).map(m => (
+        {MODE_CONFIG.map(({ mode: m, flag, label }) => (
           <button key={m} onClick={() => setMode(m)}
             className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all"
             style={{
-              background:  mode === m ? 'linear-gradient(135deg, #1E64D4, #6333AE)' : 'transparent',
-              color:       mode === m ? 'white' : 'var(--patent-muted)',
-              boxShadow:   mode === m ? '0 2px 8px rgba(26,91,197,0.3)' : 'none',
+              background: mode === m ? 'linear-gradient(135deg, #1E64D4, #6333AE)' : 'transparent',
+              color:      mode === m ? 'white' : 'var(--patent-muted)',
+              boxShadow:  mode === m ? '0 2px 8px rgba(26,91,197,0.3)' : 'none',
             }}>
-            <span>{m === 'US' ? '🇺🇸' : '🇪🇺'}</span>
-            {m === 'US' ? 'United States' : 'European Patent'}
+            <span>{flag}</span>{label}
           </button>
         ))}
       </div>
 
-      {mode === 'US' ? <USLookup /> : <EPLookup />}
+      {mode === 'US'      && <USLookup />}
+      {mode === 'EP'      && <EPLookup />}
+      {mode === 'COMPANY' && <CompanySearch />}
     </div>
   )
 }

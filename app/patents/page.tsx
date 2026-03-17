@@ -132,6 +132,7 @@ export default function PatentsPage() {
     try {
       const params = new URLSearchParams({
         page: String(page), pageSize: String(PAGE_SIZE), sortBy, sortDir,
+        source: 'PORTFOLIO',
         ...(debouncedSearch             && { q:            debouncedSearch }),
         ...(statusFilter !== 'ALL'      && { status:       statusFilter }),
         ...(typeFilter !== 'ALL'        && { type:         typeFilter }),
