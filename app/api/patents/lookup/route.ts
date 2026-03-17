@@ -234,14 +234,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const status = (p.status || 'GRANTED') as string
+    const isApplication = status === 'PENDING' || status === 'PUBLISHED'
+
     const saved = await prisma.patent.create({
       data: {
         patentNumber:      p.patent_number || null,
         applicationNumber: p.application_number || null,
         publicationNumber: p.publication_number || null,
         title:             p.title,
-        status:            p.status as any || 'GRANTED',
+        status:            status as any,
         type:              p.type   as any || 'UTILITY',
+        source:            isApplication ? 'CONTINUATION' : 'PORTFOLIO',
         filingDate:        p.filing_date      ? new Date(p.filing_date)      : null,
         publicationDate:   p.publication_date ? new Date(p.publication_date) : null,
         grantDate:         p.grant_date       ? new Date(p.grant_date)       : null,
