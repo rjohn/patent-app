@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,11 +39,19 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // In production you'd send an email here via Resend/SendGrid/etc.
-    // For now we return the invite link so you can share it manually.
     const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/invite/${invite.token}`
 
-    return NextResponse.json({ invite, inviteUrl })
+    // Send invite email via Supabase — recipient gets a link straight to our invite page
+    const { error: emailError } = await getSupabaseAdmin().auth.admin.inviteUserByEmail(email, {
+      redirectTo: inviteUrl,
+      data: { full_name: name || '' },
+    })
+    if (emailError) {
+      // Log but don't fail — invite URL can still be shared manually
+      console.warn('Supabase invite email error:', emailError.message)
+    }
+
+    return NextResponse.json({ invite, inviteUrl, emailSent: !emailError })
   } catch (e) {
     console.error(e)
     return NextResponse.json({ error: 'Failed to create invite' }, { status: 500 })

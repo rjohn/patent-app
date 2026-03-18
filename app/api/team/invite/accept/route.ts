@@ -42,29 +42,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, message: 'Account already exists. Please log in.' })
     }
 
-    // Create Supabase Auth user (passwordless — they sign in via magic link)
-    // If user already exists in Auth (e.g. prior failed attempt), look them up instead
+    // Find or create the Supabase Auth user
+    // (inviteUserByEmail already creates them; createUser handles cases where it wasn't called)
     const admin = getSupabaseAdmin()
     let authUserId: string
 
-    const { data: authData, error: authError } = await admin.auth.admin.createUser({
-      email:         invite.email,
-      email_confirm: true,
-      user_metadata: { full_name: name || invite.name || '' },
-    })
+    const { data: listData, error: listError } = await admin.auth.admin.listUsers()
+    if (listError) return NextResponse.json({ error: listError.message }, { status: 500 })
+    const authUser = listData.users.find(u => u.email === invite.email)
 
-    if (authError) {
-      if (!authError.message.toLowerCase().includes('already been registered')) {
+    if (authUser) {
+      authUserId = authUser.id
+      // Update name if provided
+      if (name) {
+        await admin.auth.admin.updateUserById(authUserId, {
+          user_metadata: { full_name: name },
+        })
+      }
+    } else {
+      // Fallback: create if somehow not yet in Supabase auth
+      const { data: authData, error: authError } = await admin.auth.admin.createUser({
+        email:         invite.email,
+        email_confirm: true,
+        user_metadata: { full_name: name || invite.name || '' },
+      })
+      if (authError) {
         console.error('Supabase auth create user error:', authError)
         return NextResponse.json({ error: authError.message }, { status: 500 })
       }
-      // Auth user already exists — find them by email
-      const { data: listData, error: listError } = await admin.auth.admin.listUsers()
-      if (listError) return NextResponse.json({ error: listError.message }, { status: 500 })
-      const existing = listData.users.find(u => u.email === invite.email)
-      if (!existing) return NextResponse.json({ error: 'Could not locate existing auth user' }, { status: 500 })
-      authUserId = existing.id
-    } else {
       authUserId = authData.user.id
     }
 
