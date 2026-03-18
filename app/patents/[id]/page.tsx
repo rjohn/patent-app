@@ -4,6 +4,7 @@ import { useState, useEffect, use, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import FamilyTree, { PatentNode } from '@/components/FamilyTree'
+import { useTheme } from '@/context/theme-context'
 import {
   ArrowLeft, ExternalLink, Users, Building2,
   GitBranch, DollarSign, FileText, Trash2, Loader2, X, AlertCircle, ChevronDown, ChevronUp, Plus, Activity, Calendar
@@ -913,6 +914,8 @@ export default function PatentDetailPage({ params }: { params: any }) {
   const resolvedParams = params instanceof Promise ? use(params) : params
   const id = resolvedParams.id as string
   const router  = useRouter()
+  const { theme } = useTheme()
+  const light = theme === 'light'
   const [patent, setPatent]     = useState<Patent | null>(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
@@ -1145,10 +1148,15 @@ export default function PatentDetailPage({ params }: { params: any }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex flex-wrap gap-1 mb-5 p-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)' }}>
+      <div className="flex flex-wrap gap-1 mb-5 p-1 rounded-lg"
+        style={{ background: light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
         {(['overview', 'claims', 'fees', 'family', 'continuity', 'history'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`text-sm px-4 py-1.5 rounded-md transition-colors capitalize ${tab === t ? 'bg-patent-navy text-white' : 'text-patent-muted hover:text-white'}`}>
+            className="text-sm px-4 py-1.5 rounded-md transition-colors capitalize"
+            style={tab === t
+              ? { background: 'var(--p4-blue)', color: '#ffffff' }
+              : { color: light ? 'rgba(0,0,0,0.45)' : 'var(--patent-muted)' }
+            }>
             {t === 'fees' ? 'Maintenance Fees' : t === 'history' ? 'Event History' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
