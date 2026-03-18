@@ -44,8 +44,12 @@ type ReportStatus = 'idle' | 'generating' | 'done' | 'error'
 interface PortfolioStats {
   totalPatents: number
   granted: number
-  pending: number
+  grantedUS: number
+  grantedEP: number
+  openApplications: number
   families: number
+  upcomingDeadlines: number
+  expiringYear: number
 }
 
 export default function ReportsPage() {
@@ -58,7 +62,7 @@ export default function ReportsPage() {
   useEffect(() => {
     fetch('/api/dashboard')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.stats) setStats({ totalPatents: d.stats.totalPatents, granted: d.stats.granted, pending: d.stats.pending, families: d.stats.families }) })
+      .then(d => { if (d?.stats) setStats({ totalPatents: d.stats.totalPatents, granted: d.stats.granted, grantedUS: d.stats.grantedUS, grantedEP: d.stats.grantedEP, openApplications: d.stats.openApplications, families: d.stats.families, upcomingDeadlines: d.stats.upcomingDeadlines, expiringYear: d.stats.expiringYear }) })
       .catch(() => {})
   }, [])
 
@@ -170,10 +174,14 @@ export default function ReportsPage() {
         <h2 className="section-title mb-4">Portfolio Snapshot</h2>
         <div className="grid grid-cols-4 gap-4 mb-4">
           {[
-            { label: 'Total Patents', value: stats?.totalPatents },
-            { label: 'Granted',       value: stats?.granted },
-            { label: 'Pending',       value: stats?.pending },
-            { label: 'Families',      value: stats?.families },
+            { label: 'Total Portfolio',    value: stats?.totalPatents },
+            { label: 'Total Granted',      value: stats?.granted },
+            { label: 'Open Applications',  value: stats?.openApplications },
+            { label: 'Patent Families',    value: stats?.families },
+            { label: 'Granted US',         value: stats?.grantedUS },
+            { label: 'Granted EP',         value: stats?.grantedEP },
+            { label: 'Upcoming Deadlines', value: stats?.upcomingDeadlines },
+            { label: 'Expiring This Year', value: stats?.expiringYear },
           ].map(s => (
             <div key={s.label} className="text-center p-3 rounded-lg"
               style={{ background: light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
