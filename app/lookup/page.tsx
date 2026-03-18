@@ -727,13 +727,24 @@ function CompanySearch() {
                       <td className="text-xs font-mono text-patent-muted whitespace-nowrap">{p.filingDate?.slice(0,10) || '—'}</td>
                       <td className="text-xs font-mono text-patent-muted whitespace-nowrap">{p.grantDate?.slice(0,10) || '—'}</td>
                       <td><span className={STATUS_BADGE[p.status] || 'status-badge'}>{p.status}</span></td>
-                      <td className="whitespace-nowrap">
-                        {(p.inPortfolio || result === 'saved') && (
-                          <span className="flex items-center gap-1 text-xs" style={{ color: '#4ade80' }}>
-                            <CheckCircle2 className="w-3.5 h-3.5" /> In portfolio
-                          </span>
-                        )}
-                        {result === 'error' && <AlertCircle className="w-4 h-4 text-red-400" />}
+                      <td className="whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-2">
+                          {(p.inPortfolio || result === 'saved') && (
+                            <span className="flex items-center gap-1 text-xs" style={{ color: '#4ade80' }}>
+                              <CheckCircle2 className="w-3.5 h-3.5" /> In portfolio
+                            </span>
+                          )}
+                          {result === 'error' && <AlertCircle className="w-4 h-4 text-red-400" />}
+                          <a
+                            href={`https://patents.google.com/patent/US${p.patentNumber || p.applicationNumber}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="View on Google Patents"
+                            className="text-patent-muted hover:text-patent-sky transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   )
