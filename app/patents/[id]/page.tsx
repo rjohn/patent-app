@@ -277,6 +277,8 @@ function directionLabel(dir: string) {
 }
 
 function EventHistoryTab({ patentId }: { patentId: string }) {
+  const { theme } = useTheme()
+  const light = theme === 'light'
   const [events, setEvents]     = useState<PatentEvent[]>([])
   const [docs, setDocs]         = useState<PatentDoc[]>([])
   const [loading, setLoading]   = useState(true)
@@ -465,7 +467,7 @@ function EventHistoryTab({ patentId }: { patentId: string }) {
                                   style={{ background: s.bg, color: s.text }}>
                                   {s.label}
                                 </span>
-                                <span className="text-sm leading-snug" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                                <span className="text-sm leading-snug" style={{ color: light ? '#374151' : 'rgba(255,255,255,0.8)' }}>
                                   {event.description}
                                 </span>
                                 <span className="text-[10px] font-mono ml-auto opacity-0 group-hover:opacity-50 transition-opacity flex-shrink-0 mt-0.5"
@@ -821,6 +823,8 @@ function ContinuityTab({ patentId, jurisdiction }: { patentId: string; jurisdict
     </div>
   )
 }function ClaimsTab({ patentId }: { patentId: string }) {
+  const { theme } = useTheme()
+  const light = theme === 'light'
   const [claims, setClaims]     = useState<string[]>([])
   const [abstract, setAbstract] = useState<string | null>(null)
   const [loading, setLoading]   = useState(true)
@@ -861,7 +865,7 @@ function ContinuityTab({ patentId, jurisdiction }: { patentId: string; jurisdict
           <h3 className="section-title mb-3 flex items-center gap-2">
             <FileText className="w-4 h-4" /> Abstract
           </h3>
-          <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.75)' }}>{abstract}</p>
+          <p className="text-sm leading-relaxed" style={{ color: light ? '#374151' : 'rgba(255,255,255,0.75)' }}>{abstract}</p>
         </div>
       )}
       <div>
@@ -1169,7 +1173,7 @@ export default function PatentDetailPage({ params }: { params: any }) {
             {p.abstract && (
               <div className="card p-5">
                 <h3 className="section-title mb-3 flex items-center gap-2"><FileText className="w-4 h-4" /> Abstract</h3>
-                <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.75)' }}>{p.abstract}</p>
+                <p className="text-sm leading-relaxed" style={{ color: light ? '#374151' : 'rgba(255,255,255,0.75)' }}>{p.abstract}</p>
               </div>
             )}
             <div className="card p-5">
