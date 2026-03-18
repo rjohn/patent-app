@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { AlertTriangle, CheckCircle2, Clock, DollarSign, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import { useTheme } from '@/context/theme-context'
 
@@ -217,7 +218,12 @@ export default function DeadlinesPage() {
                   {/* Patent info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="mono text-xs" style={{ color: 'var(--patent-sky)' }}>{d.patentNumber || '—'}</span>
+                      <Link href={`/patents/${d.patentId}`}
+                        className="mono text-xs hover:underline"
+                        style={{ color: 'var(--patent-sky)' }}
+                        onClick={e => e.stopPropagation()}>
+                        {d.patentNumber || d.patentId.slice(0, 8)}
+                      </Link>
                       <span className="text-xs px-2 py-0.5 rounded-full"
                         style={{ background: light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.07)', color: 'var(--patent-muted)' }}>
                         {feeLabel(d.feeType)}
