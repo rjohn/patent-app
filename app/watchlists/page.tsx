@@ -25,6 +25,7 @@ export default function WatchlistsPage() {
   const [createName, setCreateName] = useState('')
   const [createDesc, setCreateDesc] = useState('')
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -47,6 +48,7 @@ export default function WatchlistsPage() {
   async function create() {
     if (!createName.trim()) return
     setCreating(true)
+    setCreateError('')
     try {
       const r = await fetch('/api/watchlists', {
         method: 'POST',
@@ -59,7 +61,11 @@ export default function WatchlistsPage() {
         setCreateName('')
         setCreateDesc('')
         router.push(`/watchlists/${d.watchlist.id}`)
+      } else {
+        setCreateError(d.error || 'Failed to create watchlist')
       }
+    } catch {
+      setCreateError('Network error — please try again')
     } finally {
       setCreating(false)
     }
@@ -115,7 +121,7 @@ export default function WatchlistsPage() {
           <div className="card p-6 w-full max-w-md mx-4" style={{ background: light ? '#fff' : 'var(--patent-navy)' }}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-semibold text-lg" style={{ color: light ? '#0F172A' : 'white' }}>New Watchlist</h2>
-              <button onClick={() => setShowCreate(false)} className="btn-ghost p-1">
+              <button onClick={() => { setShowCreate(false); setCreateError('') }} className="btn-ghost p-1">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -141,7 +147,8 @@ export default function WatchlistsPage() {
                 />
               </div>
             </div>
-            <div className="flex gap-3 mt-6">
+            {createError && <p className="text-sm text-red-400 mt-3">{createError}</p>}
+            <div className="flex gap-3 mt-4">
               <button onClick={create} disabled={!createName.trim() || creating} className="btn-primary flex items-center gap-2 flex-1 justify-center">
                 {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 Create
