@@ -110,6 +110,7 @@ function shapePatent(meta: any, continuity: any, rawAppNumber: string) {
     patent_number:         appMeta.patentNumber || null,
     publication_number:    appMeta.earliestPublicationNumber || null,
     title:                 appMeta.inventionTitle || appMeta.patentTitle || 'Unknown Title',
+    abstract:              appMeta.abstractText || appMeta.inventionAbstractText || null,
     status:                mapStatus(appMeta.applicationStatusDescriptionText || appMeta.applicationStatusCode || ''),
     type,
     filing_date:           appMeta.filingDate || null,

@@ -45,6 +45,9 @@ interface SearchResult {
   inventors: string[]
   filingDate: string | null
   grantDate: string | null
+  abstract?: string | null
+  cpcCodes?: string[]
+  expirationDate?: string | null
 }
 
 type SearchMode = 'company' | 'number'
@@ -90,6 +93,8 @@ export default function WatchlistDetailPage() {
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshResult, setRefreshResult] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -128,14 +133,17 @@ export default function WatchlistDetailPage() {
         if (d.patent) {
           const p = d.patent
           setSearchResults([{
-            applicationNumber: p.applicationNumber || '',
-            patentNumber: p.patentNumber || null,
-            title: p.title || 'Untitled',
-            status: p.status || 'PENDING',
-            assignee: p.assignee || null,
-            inventors: p.inventors || [],
-            filingDate: p.filingDate || null,
-            grantDate: p.grantDate || null,
+            applicationNumber: p.application_number || p.applicationNumber || '',
+            patentNumber:      p.patent_number || p.patentNumber || null,
+            title:             p.title || 'Untitled',
+            status:            p.status || 'PENDING',
+            assignee:          p.assignee || null,
+            inventors:         p.inventors || [],
+            filingDate:        p.filing_date || p.filingDate || null,
+            grantDate:         p.grant_date || p.grantDate || null,
+            abstract:          p.abstract || null,
+            cpcCodes:          p.cpc_codes || [],
+            expirationDate:    p.expiration_date || null,
           }])
           setSearchTotal(1)
         } else {
@@ -158,15 +166,18 @@ export default function WatchlistDetailPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          patentNumber: p.patentNumber,
-          appNumber:    p.applicationNumber,
-          title:        p.title,
-          assignee:     p.assignee,
-          inventors:    p.inventors,
-          filingDate:   p.filingDate,
-          grantDate:    p.grantDate,
-          status:       p.status,
-          jurisdiction: 'US',
+          patentNumber:   p.patentNumber,
+          appNumber:      p.applicationNumber,
+          title:          p.title,
+          assignee:       p.assignee,
+          inventors:      p.inventors,
+          filingDate:     p.filingDate,
+          grantDate:      p.grantDate,
+          status:         p.status,
+          abstract:       p.abstract || null,
+          cpcCodes:       p.cpcCodes || [],
+          expirationDate: p.expirationDate || null,
+          jurisdiction:   'US',
         }),
       })
       if (r.status === 409) {
@@ -233,6 +244,30 @@ export default function WatchlistDetailPage() {
       }
     } finally {
       setAnalyzingId(null)
+    }
+  }
+
+  async function refreshAbstracts() {
+    setRefreshing(true)
+    setRefreshResult(null)
+    try {
+      const r = await fetch(`/api/watchlists/${id}/patents/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const d = await r.json()
+      if (r.ok) {
+        if (d.refreshed === 0) {
+          setRefreshResult('All entries already have abstracts')
+        } else {
+          setRefreshResult(`Updated ${d.refreshed} patent${d.refreshed !== 1 ? 's' : ''}${d.failed ? ` (${d.failed} failed)` : ''}`)
+          const fresh = await (await fetch(`/api/watchlists/${id}`)).json()
+          setWatchlist(fresh.watchlist)
+        }
+      }
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -395,8 +430,22 @@ export default function WatchlistDetailPage() {
 
       {/* Tracked entries */}
       <div className="card overflow-hidden">
-        <div className="px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${border}` }}>
           <h2 className="section-title">Tracked Patents</h2>
+          {watchlist.entries.length > 0 && (
+            <div className="flex items-center gap-3">
+              {refreshResult && <span className="text-xs text-patent-muted">{refreshResult}</span>}
+              <button
+                onClick={refreshAbstracts}
+                disabled={refreshing}
+                className="btn-secondary text-xs flex items-center gap-1.5"
+                title="Fetch abstracts and latest data from USPTO for entries missing them"
+              >
+                {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {refreshing ? 'Refreshing…' : 'Refresh Data'}
+              </button>
+            </div>
+          )}
         </div>
 
         {watchlist.entries.length === 0 ? (
