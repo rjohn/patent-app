@@ -4,115 +4,17 @@ import { prisma } from '@/lib/prisma'
 export const dynamic = 'force-dynamic'
 
 /**
- * Fetches abstract + claims.
+ * Fetches abstract + claims for a US patent.
  *
  * Source priority:
- *  1. DB cache       — already stored from a previous fetch (instant)
- *  2. EPO OPS API    — free, supports US patents, returns structured XML with abstract + claims
- *                      Requires EPO_OPS_KEY env var (free registration at ops.epo.org)
- *  3. ODP XML docs   — download the XML grant document from the USPTO file wrapper
+ *  1. DB cache — claimsJson already populated (instant)
+ *  2. USPTO ODP CLM XML — the "Claims" document in the patent's file wrapper
+ *     (most reliable; is a tar archive containing USPTO ST.96 XML)
+ *  3. EPO OPS — fallback for abstract and claims if ODP unavailable
  */
 
-// ── EPO OPS ───────────────────────────────────────────────────────────────────
-// Docs: https://ops.epo.org/3.2/rest-services
-// Endpoint: GET /rest-services/published-data/publication/epodoc/{docNum}/abstract
-//           GET /rest-services/published-data/publication/epodoc/{docNum}/claims
-// Doc number format for US grants: "US{patentNumber}" e.g. "US10064263"
+// ── USPTO ODP helpers ─────────────────────────────────────────────────────────
 
-async function getEpoToken(): Promise<string | null> {
-  const key    = process.env.EPO_OPS_KEY    // consumer key
-  const secret = process.env.EPO_OPS_SECRET // consumer secret
-  if (!key || !secret) return null
-
-  const creds = Buffer.from(`${key}:${secret}`).toString('base64')
-  try {
-    const res = await fetch('https://ops.epo.org/3.2/auth/accesstoken', {
-      method: 'POST',
-      headers: { 'Authorization': `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'grant_type=client_credentials',
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.access_token || null
-  } catch { return null }
-}
-
-function extractTextFromOpsXml(xml: string, tag: string): string | null {
-  // EPO OPS returns XML like:
-  // <abstract lang="en"><p>Some text here...</p></abstract>
-  // <claims lang="en"><claim-text>1. A method...</claim-text></claims>
-  const match = xml.match(new RegExp(`<${tag}[^>]*lang="en"[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
-    || xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
-  if (!match) return null
-  return match[1]
-    .replace(/<p>/gi, '')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<claim-text>/gi, '')
-    .replace(/<\/claim-text>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim() || null
-}
-
-function parseClaimsText(claimsText: string): string[] {
-  if (!claimsText) return []
-  // Split on numbered claim boundaries: "1. " "2. " etc.
-  const parts = claimsText.split(/(?=\b\d{1,2}\.\s)/).filter(p => p.trim())
-  if (parts.length > 1) return parts.map(p => p.trim()).filter(Boolean)
-  // Fallback: return as single claim
-  return [claimsText.trim()]
-}
-
-async function fetchFromEpo(patentNumber: string): Promise<{
-  abstract: string | null; claims: string[]
-} | null> {
-  const token = await getEpoToken()
-  if (!token) return null
-
-  const bare = patentNumber.replace(/^US/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '')
-  const docNum = `US${bare}`
-  const base = 'https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc'
-  const headers = {
-    'Authorization': `Bearer ${token}`,
-    'Accept': 'application/xml',
-  }
-
-  const fulltextBase = 'https://ops.epo.org/3.2/rest-services/fulltext/publication/epodoc'
-
-  try {
-    const [absRes, claimsRes, ftClaimsRes] = await Promise.all([
-      fetch(`${base}/${docNum}/abstract`,       { headers, signal: AbortSignal.timeout(10000) }),
-      fetch(`${base}/${docNum}/claims`,          { headers, signal: AbortSignal.timeout(10000) }),
-      fetch(`${fulltextBase}/${docNum}/claims`,  { headers, signal: AbortSignal.timeout(10000) }),
-    ])
-
-    console.log(`[claims/route] ${docNum} abstract=${absRes.status} pub-claims=${claimsRes.status} ft-claims=${ftClaimsRes.status}`)
-
-    const abstract = absRes.ok
-      ? extractTextFromOpsXml(await absRes.text(), 'abstract')
-      : null
-
-    // Try published-data claims first, then fulltext claims
-    let claimsRaw: string | null = null
-    if (claimsRes.ok) {
-      claimsRaw = extractTextFromOpsXml(await claimsRes.text(), 'claims')
-    }
-    if (!claimsRaw && ftClaimsRes.ok) {
-      claimsRaw = extractTextFromOpsXml(await ftClaimsRes.text(), 'claims')
-    }
-    const claims = claimsRaw ? parseClaimsText(claimsRaw) : []
-
-    console.log(`[claims/route] ${docNum} → abstract=${!!abstract} claims=${claims.length}`)
-    if (!abstract && claims.length === 0) return null
-    return { abstract, claims }
-  } catch (e) {
-    console.error(`[claims/route] fetchFromEpo error for ${docNum}:`, e)
-    return null
-  }
-}
-
-// ── ODP XML documents fallback ────────────────────────────────────────────────
 const ODP_BASE = 'https://api.uspto.gov/api/v1/patent/applications'
 
 function odpHeaders(): Record<string, string> {
@@ -121,130 +23,212 @@ function odpHeaders(): Record<string, string> {
   return h
 }
 
-function parseFromXml(xml: string): { abstract: string | null; claims: string[] } {
-  const claims: string[] = []
-
-  const absMatch = xml.match(/<abstract[^>]*>([\s\S]*?)<\/abstract>/i)
-  const abstract = absMatch
-    ? absMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null
-    : null
-
-  const claimRegex = /<claim[^>]*>([\s\S]*?)<\/claim>/gi
-  let m
-  while ((m = claimRegex.exec(xml)) !== null) {
-    const text = m[1]
-      .replace(/<claim-text>/gi, '').replace(/<\/claim-text>/gi, '\n')
-      .replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-    if (text) claims.push(text)
-  }
-  return { abstract, claims }
-}
-
-async function fetchFromOdpXml(appNumber: string): Promise<{
-  abstract: string | null; claims: string[]
+/**
+ * Fetches the CLM (Claims) XML document from the ODP file wrapper.
+ * The download is a tar archive; we find the <?xml start and parse from there.
+ */
+async function fetchClaimsFromOdp(appNumber: string): Promise<{
+  abstract: string | null
+  claims: string[]
 } | null> {
   try {
+    // 1. Get document list
     const docsRes = await fetch(`${ODP_BASE}/${appNumber}/documents`, {
-      headers: odpHeaders(), signal: AbortSignal.timeout(10000),
+      headers: odpHeaders(),
+      signal: AbortSignal.timeout(12000),
     })
     if (!docsRes.ok) return null
+    const docBag: any[] = (await docsRes.json())?.documentBag ?? []
 
-    const docBag: any[] = (await docsRes.json())?.documentBag || []
+    // 2. Find the CLM document with XML mime type (most recent first)
+    const clmDoc = docBag
+      .filter(d => d.documentCode === 'CLM')
+      .sort((a, b) => new Date(b.officialDate ?? 0).getTime() - new Date(a.officialDate ?? 0).getTime())
+      .find(d => (d.downloadOptionBag ?? []).some((o: any) => /xml/i.test(o.mimeTypeIdentifier ?? '')))
 
-    // Prefer the grant XML (documentCode contains GRANT/ISSUE), fall back to any XML
-    const xmlDoc =
-      docBag.find(d =>
-        /grant|issue/i.test(d.documentCode || '') &&
-        (d.downloadOptionBag || []).some((o: any) => /xml/i.test(o.mimeTypeIdentifier || ''))
-      ) ||
-      docBag.find(d =>
-        (d.downloadOptionBag || []).some((o: any) => /xml/i.test(o.mimeTypeIdentifier || ''))
-      )
+    if (!clmDoc) return null
 
-    const xmlUrl = (xmlDoc?.downloadOptionBag || [])
-      .find((o: any) => /xml/i.test(o.mimeTypeIdentifier || ''))?.downloadUrl
+    const xmlUrl = (clmDoc.downloadOptionBag ?? [])
+      .find((o: any) => /xml/i.test(o.mimeTypeIdentifier ?? ''))?.downloadUrl
     if (!xmlUrl) return null
 
-    const xmlRes = await fetch(xmlUrl, { headers: odpHeaders(), signal: AbortSignal.timeout(20000) })
+    // 3. Download — ODP returns a tar archive; follow redirect, read binary
+    const xmlRes = await fetch(xmlUrl, {
+      headers: odpHeaders(),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
+    })
     if (!xmlRes.ok) return null
 
-    const result = parseFromXml(await xmlRes.text())
-    return (result.abstract || result.claims.length > 0) ? result : null
+    const buf = Buffer.from(await xmlRes.arrayBuffer())
+
+    // 4. Find <?xml start (skip tar header bytes)
+    const xmlStart = buf.indexOf(Buffer.from('<?xml'))
+    if (xmlStart === -1) return null
+    const xmlText = buf.subarray(xmlStart).toString('utf-8')
+
+    return parseClmXml(xmlText)
+  } catch (e) {
+    console.error('[claims] ODP CLM fetch error:', e)
+    return null
+  }
+}
+
+/**
+ * Parse USPTO ST.96 Claims XML (uspat namespace).
+ * Extracts each <uspat:Claim> as clean text.
+ */
+function parseClmXml(xml: string): { abstract: string | null; claims: string[] } {
+  const claims: string[] = []
+
+  // Match each <uspat:Claim> block
+  const claimPattern = /<uspat:Claim\b[^>]*>([\s\S]*?)<\/uspat:Claim>/gi
+  let match: RegExpExecArray | null
+
+  while ((match = claimPattern.exec(xml)) !== null) {
+    const raw = match[1]
+
+    // Replace nested <uspat:ClaimText> opening tags with spaces (they represent indented sub-clauses)
+    let text = raw
+      .replace(/<uspat:ClaimText>/gi, ' ')
+      .replace(/<\/uspat:ClaimText>/gi, '')
+      // Remove all other XML tags
+      .replace(/<[^>]+>/g, '')
+      // Strip amendment status markers
+      .replace(/\(Currently Amended\)\s*/gi, '')
+      .replace(/\(Original\)\s*/gi, '')
+      .replace(/\(Canceled\)\s*/gi, '')
+      .replace(/\(Previously Presented\)\s*/gi, '')
+      .replace(/\(New\)\s*/gi, '')
+      // Normalize whitespace
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (text) claims.push(text)
+  }
+
+  return { abstract: null, claims }
+}
+
+// ── EPO OPS helpers (abstract fallback) ──────────────────────────────────────
+
+let _epoTokenCache: { token: string; expires: number } | null = null
+
+async function getEpoToken(): Promise<string | null> {
+  const key    = process.env.EPO_OPS_KEY
+  const secret = process.env.EPO_OPS_SECRET
+  if (!key || !secret) return null
+  if (_epoTokenCache && Date.now() < _epoTokenCache.expires - 30000) return _epoTokenCache.token
+  try {
+    const res = await fetch('https://ops.epo.org/3.2/auth/accesstoken', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    _epoTokenCache = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 }
+    return _epoTokenCache.token
+  } catch { return null }
+}
+
+function extractXmlText(xml: string, tag: string): string | null {
+  const m = xml.match(new RegExp(`<${tag}[^>]*lang="en"[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+    || xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+  if (!m) return null
+  return m[1].replace(/<p>/gi, '').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() || null
+}
+
+async function fetchAbstractFromEpo(patentNumber: string): Promise<string | null> {
+  const token = await getEpoToken()
+  if (!token) return null
+  try {
+    const bare = patentNumber.replace(/^US/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '')
+    const res = await fetch(
+      `https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/US${bare}/abstract`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/xml' }, signal: AbortSignal.timeout(10000) }
+    )
+    if (!res.ok) return null
+    return extractXmlText(await res.text(), 'abstract')
   } catch { return null }
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
 
     const patent = await prisma.patent.findUnique({
       where: { id },
-      select: { applicationNumber: true, patentNumber: true, abstract: true, claimsJson: true, rawJsonData: true },
+      select: { applicationNumber: true, patentNumber: true, abstract: true, claimsJson: true },
     })
     if (!patent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // ── 1. DB cache — return if we have claims stored (abstract optional)
-    if (patent.claimsJson && (patent.claimsJson as any[]).length > 0) {
+    // ── 1. DB cache — return immediately if claims are stored ─────────────────
+    if (patent.claimsJson && Array.isArray(patent.claimsJson) && (patent.claimsJson as any[]).length > 0) {
       const claims = (patent.claimsJson as any[])
-        .map((c: any) => (typeof c === 'string' ? c : c.claim_text || '').trim())
+        .map((c: any) => (typeof c === 'string' ? c : c.claim_text ?? '').trim())
         .filter(Boolean)
-      return NextResponse.json({ abstract: patent.abstract || null, claims, source: 'stored' })
+      return NextResponse.json({ abstract: patent.abstract ?? null, claims, source: 'stored' })
     }
 
-    // ── 1b. Abstract stored in rawJsonData from ODP refresh
-    const rawAbstract = (patent.rawJsonData as any)?.patentFileWrapperDataBag?.[0]?.applicationMetaData?.abstractText || null
+    const appNumber = patent.applicationNumber?.replace(/\D/g, '') ?? null
 
-    // ── 2. EPO OPS (requires EPO_OPS_KEY + EPO_OPS_SECRET env vars)
-    let epoAbstract: string | null = null
+    // ── 2. USPTO ODP CLM XML (most reliable source for claims) ───────────────
+    if (appNumber) {
+      const odp = await fetchClaimsFromOdp(appNumber)
+      if (odp && odp.claims.length > 0) {
+        // Also try to get abstract from EPO OPS in parallel
+        const abstract = patent.abstract
+          ?? (patent.patentNumber ? await fetchAbstractFromEpo(patent.patentNumber) : null)
+          ?? null
+
+        const claimsJson = odp.claims.map((t, i) => ({ claim_sequence: i + 1, claim_text: t }))
+        await prisma.patent.update({
+          where: { id },
+          data: {
+            claimsJson,
+            ...(abstract && !patent.abstract ? { abstract } : {}),
+          },
+        }).catch(() => {})
+
+        return NextResponse.json({ abstract, claims: odp.claims, source: 'odp-clm-xml' })
+      }
+    }
+
+    // ── 3. EPO OPS fallback (abstract + claims) ───────────────────────────────
     if (patent.patentNumber) {
-      const epo = await fetchFromEpo(patent.patentNumber)
-      if (epo && epo.claims.length > 0) {
-        const updateData: any = {}
-        if (epo.abstract) updateData.abstract = epo.abstract
-        updateData.claimsJson = epo.claims.map((t, i) => ({ claim_sequence: i + 1, claim_text: t }))
-        await prisma.patent.update({ where: { id }, data: updateData }).catch(() => {})
-        return NextResponse.json({ ...epo, source: 'epo-ops' })
+      const abstract = patent.abstract ?? await fetchAbstractFromEpo(patent.patentNumber) ?? null
+      if (abstract && !patent.abstract) {
+        await prisma.patent.update({ where: { id }, data: { abstract } }).catch(() => {})
       }
-      // EPO had abstract but no claims — save abstract and continue to ODP fallback
-      if (epo?.abstract) epoAbstract = epo.abstract
-    }
-
-    // ── 3. ODP XML document download
-    if (patent.applicationNumber) {
-      const odp = await fetchFromOdpXml(patent.applicationNumber)
-      if (odp) {
-        const updateData: any = {}
-        if (odp.abstract) updateData.abstract = odp.abstract
-        if (odp.claims.length > 0) updateData.claimsJson = odp.claims.map((t, i) => ({ claim_sequence: i + 1, claim_text: t }))
-        if (Object.keys(updateData).length > 0) {
-          await prisma.patent.update({ where: { id }, data: updateData }).catch(() => {})
-        }
-        return NextResponse.json({ ...odp, source: 'odp-xml' })
+      if (abstract) {
+        return NextResponse.json({
+          abstract,
+          claims: [],
+          source: 'epo-ops',
+          message: 'Abstract retrieved. Full claims text not yet available for this patent.',
+        })
       }
     }
 
-    // ── 5. Return whatever is in DB (including rawJsonData abstract or EPO abstract)
-    const fallbackAbstract = patent.abstract || epoAbstract || rawAbstract || null
-    if (fallbackAbstract) {
-      // Save it back to the abstract field for next time
-      if (!patent.abstract && rawAbstract) {
-        await prisma.patent.update({ where: { id }, data: { abstract: rawAbstract } }).catch(() => {})
-      }
-    }
+    // ── 4. Nothing found ──────────────────────────────────────────────────────
     return NextResponse.json({
-      abstract: fallbackAbstract,
+      abstract: patent.abstract ?? null,
       claims: [],
-      source: fallbackAbstract ? 'stored' : null,
-      message: !fallbackAbstract
-        ? (!process.env.EPO_OPS_KEY
-            ? 'Add EPO_OPS_KEY + EPO_OPS_SECRET to .env.local for claims retrieval'
-            : 'Claims text not available for this patent')
-        : null,
+      source: null,
+      message: appNumber
+        ? 'Claims document not yet available in USPTO file wrapper'
+        : 'No application number on record for this patent',
     })
 
   } catch (e) {
-    console.error('Claims/abstract error:', e)
+    console.error('[claims] error:', e)
     return NextResponse.json({ abstract: null, claims: [], message: 'Fetch failed' })
   }
 }

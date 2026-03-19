@@ -848,14 +848,15 @@ function ContinuityTab({ patentId, jurisdiction }: { patentId: string; jurisdict
   if (loading) return (
     <div className="flex items-center justify-center py-16">
       <Loader2 className="w-6 h-6 animate-spin mr-3" style={{ color: 'var(--patent-sky)' }} />
-      <span className="text-patent-muted text-sm">Fetching from Google Patents...</span>
+      <span className="text-patent-muted text-sm">Fetching claims from USPTO…</span>
     </div>
   )
 
   const sourceLabel: Record<string, string> = {
-    'google-patents': 'Google Patents',
-    'odp-xml': 'USPTO ODP',
-    'stored': 'Database',
+    'odp-clm-xml': 'USPTO CLM XML',
+    'epo-ops':     'EPO OPS',
+    'stored':      'Database',
+    'odp-xml':     'USPTO ODP',
   }
 
   return (
