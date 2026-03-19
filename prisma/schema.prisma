@@ -351,6 +351,10 @@ model WatchlistEntry {
   // User-added notes
   notes         String?   @db.Text
 
+  // AI-generated portfolio analysis (cached)
+  aiSummary     String?   @db.Text
+  aiSummaryAt   DateTime?
+
   addedAt       DateTime  @default(now())
   rawData       Json?
 

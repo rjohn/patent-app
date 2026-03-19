@@ -27,8 +27,8 @@ export async function POST(req: NextRequest) {
       data: { name: name.trim(), description: description?.trim() || null },
     })
     return NextResponse.json({ watchlist }, { status: 201 })
-  } catch (e) {
+  } catch (e: any) {
     console.error(e)
-    return NextResponse.json({ error: 'Failed to create watchlist' }, { status: 500 })
+    return NextResponse.json({ error: e?.message || 'Failed to create watchlist' }, { status: 500 })
   }
 }
