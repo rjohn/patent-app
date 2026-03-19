@@ -314,6 +314,50 @@ enum UploadStatus {
   PARTIAL
 }
 
+// ─── Watchlists ───────────────────────────────────────────────────────────────
+
+model Watchlist {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  entries     WatchlistEntry[]
+
+  @@map("watchlists")
+}
+
+model WatchlistEntry {
+  id            String    @id @default(cuid())
+  watchlistId   String
+  watchlist     Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+
+  // USPTO identifiers
+  patentNumber  String?
+  appNumber     String?
+
+  // Bibliographic data
+  title         String?
+  assignee      String?
+  inventors     String[]
+  filingDate    String?
+  grantDate     String?
+  expirationDate String?
+  status        String?
+  abstract      String?   @db.Text
+  cpcCodes      String[]
+  jurisdiction  String    @default("US")
+
+  // User-added notes
+  notes         String?   @db.Text
+
+  addedAt       DateTime  @default(now())
+  rawData       Json?
+
+  @@index([watchlistId])
+  @@map("watchlist_entries")
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 model Notification {
