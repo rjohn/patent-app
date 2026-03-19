@@ -468,31 +468,36 @@ export default function WatchlistDetailPage() {
                   {/* ── Header row ── */}
                   <div className="px-5 pt-4 pb-3">
                     <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
+                      {/* Clickable content area — expands/collapses detail */}
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(entry.id)}>
                         {/* Identifiers + badges */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="mono text-xs font-medium" style={{ color: 'var(--patent-sky)' }}>
-                            {entry.patentNumber ? `US ${entry.patentNumber}` : entry.appNumber || '—'}
-                          </span>
+                          {entry.patentNumber ? (
+                            <a
+                              href={`https://patents.google.com/patent/US${entry.patentNumber}`}
+                              target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="mono text-xs font-medium flex items-center gap-1 hover:underline"
+                              style={{ color: 'var(--patent-sky)' }}
+                              title="Open on Google Patents"
+                            >
+                              US {entry.patentNumber}
+                              <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                            </a>
+                          ) : (
+                            <span className="mono text-xs font-medium" style={{ color: 'var(--patent-sky)' }}>
+                              {entry.appNumber || '—'}
+                            </span>
+                          )}
                           {entry.status && (
                             <span className="text-xs px-1.5 py-0.5 rounded-full font-medium"
                               style={{ background: `${statusColor(entry.status)}20`, color: statusColor(entry.status) }}>
                               {entry.status}
                             </span>
                           )}
-                          {entry.patentNumber && (
-                            <a href={`https://patents.google.com/patent/US${entry.patentNumber}`}
-                              target="_blank" rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-xs transition-colors"
-                              style={{ color: 'var(--patent-sky)' }}
-                              title="Open on Google Patents">
-                              <ExternalLink className="w-3 h-3" />
-                              Google Patents
-                            </a>
-                          )}
                         </div>
 
-                        {/* Title */}
+                        {/* Title — click hint on hover */}
                         <p className="font-medium mt-1 leading-snug"
                           style={{ color: light ? '#1e293b' : 'rgba(255,255,255,0.95)' }}>
                           {entry.title || 'Untitled'}
@@ -505,8 +510,8 @@ export default function WatchlistDetailPage() {
                           {entry.grantDate  && <span>Granted: {entry.grantDate.slice(0, 10)}</span>}
                         </div>
 
-                        {/* Abstract — always visible */}
-                        {entry.abstract && (
+                        {/* Abstract — always visible, clamp to 4 lines when collapsed */}
+                        {entry.abstract ? (
                           <p className="text-sm mt-2 leading-relaxed"
                             style={{
                               color: light ? '#374151' : 'rgba(255,255,255,0.72)',
@@ -517,12 +522,17 @@ export default function WatchlistDetailPage() {
                             }}>
                             {entry.abstract}
                           </p>
+                        ) : (
+                          <p className="text-xs mt-2 italic text-patent-muted">
+                            No abstract — click <strong>Refresh Data</strong> to fetch from USPTO
+                          </p>
                         )}
                       </div>
 
                       {/* Actions column */}
                       <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-2">
-                        <button onClick={() => removeEntry(entry.id)} disabled={removingId === entry.id}
+                        <button onClick={e => { e.stopPropagation(); removeEntry(entry.id) }}
+                          disabled={removingId === entry.id}
                           className="btn-ghost p-1 text-patent-muted hover:text-red-400 transition-colors" title="Remove">
                           {removingId === entry.id
                             ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
