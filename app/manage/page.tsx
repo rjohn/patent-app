@@ -6,7 +6,7 @@ import {
   Search, Loader2, AlertCircle, CheckCircle2, Pencil, X, Save,
   DollarSign, RefreshCw, Check, ChevronDown, ChevronUp,
   AlertTriangle, Wifi, WifiOff, RotateCcw, Zap, ArrowLeft,
-  GitBranch, ChevronRight, ExternalLink
+  GitBranch, ChevronRight, ExternalLink, BookOpen,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -713,6 +713,13 @@ export default function ManagePage() {
   const [refreshResults, setRefreshResults] = useState<RefreshResult[]>([])
   const abortRef = React.useRef(false)
 
+  // Full-text population state
+  type FtResult = { id: string; title: string; patentNumber: string|null; status: 'fetched'|'cached'|'error'; claims: number }
+  const [ftPhase, setFtPhase]       = useState<'idle'|'running'|'done'>('idle')
+  const [ftCurrent, setFtCurrent]   = useState(0)
+  const [ftResults, setFtResults]   = useState<FtResult[]>([])
+  const ftAbortRef = React.useRef(false)
+
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
@@ -744,6 +751,37 @@ export default function ManagePage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const startPopulateText = async () => {
+    // Only US patents with a patent number can be fetched from EPO OPS
+    const targets = patents.filter(p => p.patentNumber && (p.jurisdiction || 'US') !== 'EP')
+    setFtPhase('running')
+    setFtCurrent(0)
+    setFtResults([])
+    ftAbortRef.current = false
+
+    for (let i = 0; i < targets.length; i++) {
+      if (ftAbortRef.current) break
+      const p = targets[i]
+      setFtCurrent(i + 1)
+      try {
+        const res  = await fetch(`/api/patents/${p.id}/claims`)
+        const data = await res.json()
+        const cached  = data.source === 'stored'
+        const fetched = !cached && (data.claims?.length > 0 || data.abstract)
+        setFtResults(prev => [...prev, {
+          id: p.id, title: p.title, patentNumber: p.patentNumber,
+          status: cached ? 'cached' : fetched ? 'fetched' : 'error',
+          claims: data.claims?.length || 0,
+        }])
+      } catch {
+        setFtResults(prev => [...prev, { id: p.id, title: p.title, patentNumber: p.patentNumber, status: 'error', claims: 0 }])
+      }
+      // Respect EPO OPS rate limits between requests
+      if (i < targets.length - 1) await new Promise(r => setTimeout(r, 600))
+    }
+    setFtPhase('done')
+  }
 
   const startRefresh = async () => {
     setRefreshPhase('running'); abortRef.current = false
@@ -905,6 +943,101 @@ export default function ManagePage() {
           </div>
         )}
       </div>
+
+      {/* ── Populate Full Text card ─── */}
+      {(() => {
+        const ftTargets  = patents.filter(p => p.patentNumber && (p.jurisdiction || 'US') !== 'EP')
+        const ftFetched  = ftResults.filter(r => r.status === 'fetched').length
+        const ftCached   = ftResults.filter(r => r.status === 'cached').length
+        const ftFailed   = ftResults.filter(r => r.status === 'error').length
+        const ftProgress = ftTargets.length > 0 ? Math.round((ftCurrent / ftTargets.length) * 100) : 0
+        return (
+          <div className="card p-5 mb-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{background:'rgba(139,92,246,0.15)', border:'1px solid rgba(139,92,246,0.2)'}}>
+                  <BookOpen className="w-4 h-4" style={{color:'#a78bfa'}}/>
+                </div>
+                <div>
+                  <h2 className="font-semibold text-white text-sm">Populate Full Text</h2>
+                  <p className="text-xs text-patent-muted mt-0.5">
+                    Fetches abstract and claims for {ftTargets.length} granted US patent{ftTargets.length !== 1 ? 's' : ''} via EPO OPS and USPTO XML.
+                    Cached locally — only fetches live data for patents not yet populated.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {ftPhase === 'idle' && (
+                  <button onClick={startPopulateText} disabled={loading || ftTargets.length === 0}
+                    className="btn-primary flex items-center gap-2 text-sm"
+                    style={{background:'linear-gradient(135deg,#6333ae,#1e64d4)'}}>
+                    <BookOpen className="w-4 h-4"/> Populate ({ftTargets.length})
+                  </button>
+                )}
+                {ftPhase === 'running' && (
+                  <button onClick={() => { ftAbortRef.current = true }} className="btn-secondary flex items-center gap-2 text-sm">
+                    <X className="w-4 h-4"/> Stop
+                  </button>
+                )}
+                {ftPhase === 'done' && (
+                  <button onClick={() => { setFtPhase('idle'); setFtResults([]); setFtCurrent(0) }}
+                    className="btn-secondary flex items-center gap-2 text-sm">
+                    <RotateCcw className="w-3.5 h-3.5"/> Reset
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {(ftPhase === 'running' || ftPhase === 'done') && (
+              <div className="mt-4 space-y-3">
+                <div className="flex justify-between text-xs text-patent-muted">
+                  <span>{ftPhase === 'done' ? 'Complete' : `${ftCurrent} / ${ftTargets.length} processed…`}</span>
+                  <span>{ftProgress}%</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,0.08)'}}>
+                  <div className="h-full rounded-full transition-all duration-300"
+                    style={{width:`${ftProgress}%`, background: ftPhase === 'done' ? '#4ade80' : '#a78bfa'}}/>
+                </div>
+                {ftResults.length > 0 && (
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-1.5 text-xs" style={{color:'#4ade80'}}>
+                      <CheckCircle2 className="w-3.5 h-3.5"/> {ftFetched} fetched
+                    </span>
+                    <span className="flex items-center gap-1.5 text-xs text-patent-muted">
+                      <Check className="w-3.5 h-3.5"/> {ftCached} already cached
+                    </span>
+                    {ftFailed > 0 && (
+                      <span className="flex items-center gap-1.5 text-xs" style={{color:'#f87171'}}>
+                        <AlertCircle className="w-3.5 h-3.5"/> {ftFailed} not available
+                      </span>
+                    )}
+                  </div>
+                )}
+                {ftResults.filter(r => r.status === 'fetched' || r.status === 'error').length > 0 && (
+                  <div className="rounded-lg divide-y text-xs" style={{border:'1px solid rgba(255,255,255,0.08)', maxHeight:160, overflowY:'auto'}}>
+                    {ftResults.filter(r => r.status === 'fetched' || r.status === 'error').map(r => (
+                      <div key={r.id} className="px-3 py-2 flex items-start gap-2 hover:bg-white/[0.02]">
+                        {r.status === 'fetched'
+                          ? <BookOpen className="w-3 h-3 mt-0.5 flex-shrink-0" style={{color:'#a78bfa'}}/>
+                          : <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" style={{color:'#f87171'}}/>}
+                        <div className="min-w-0">
+                          <span className="font-mono" style={{color:'var(--patent-sky)'}}>{r.patentNumber || '—'}</span>
+                          {' · '}
+                          <span className="text-patent-muted">{r.title.slice(0, 50)}</span>
+                          {r.status === 'fetched'
+                            ? <div className="text-patent-muted opacity-70 mt-0.5">{r.claims} claim{r.claims !== 1 ? 's' : ''} stored</div>
+                            : <div style={{color:'#f87171'}} className="mt-0.5">Not available from EPO OPS or USPTO XML</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Search + filter ─── */}
       <div className="flex items-center gap-3 mb-5">
