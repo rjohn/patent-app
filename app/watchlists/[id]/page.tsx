@@ -9,6 +9,11 @@ import {
 } from 'lucide-react'
 import { useTheme } from '@/context/theme-context'
 
+interface ClaimItem {
+  claim_sequence: number
+  claim_text: string
+}
+
 interface WatchlistEntry {
   id: string
   patentNumber: string | null
@@ -23,6 +28,7 @@ interface WatchlistEntry {
   abstract: string | null
   cpcCodes: string[]
   jurisdiction: string
+  claimsJson: ClaimItem[] | null
   notes: string | null
   aiSummary: string | null
   aiSummaryAt: string | null
@@ -66,6 +72,40 @@ function statusColor(status: string | null) {
 
 const PAGE_SIZE = 25
 
+function ClaimsSection({ claims, light, border, muted }: {
+  claims: ClaimItem[]
+  light: boolean
+  border: string
+  muted: string
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? claims : claims.slice(0, 3)
+
+  return (
+    <div className="mb-4">
+      <p className="text-xs font-medium text-patent-muted mb-2">
+        Claims ({claims.length})
+      </p>
+      <div className="space-y-2">
+        {visible.map(c => (
+          <div key={c.claim_sequence} className="rounded-md px-3 py-2 text-sm leading-relaxed"
+            style={{ background: muted, border: `1px solid ${border}` }}>
+            <span className="font-medium mono text-xs mr-2"
+              style={{ color: 'var(--patent-sky)' }}>{c.claim_sequence}.</span>
+            <span style={{ color: light ? '#374151' : 'rgba(255,255,255,0.78)' }}>{c.claim_text}</span>
+          </div>
+        ))}
+      </div>
+      {claims.length > 3 && (
+        <button onClick={() => setShowAll(s => !s)}
+          className="text-xs mt-2 text-patent-muted hover:text-patent-sky transition-colors">
+          {showAll ? `Show fewer` : `Show all ${claims.length} claims`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function WatchlistDetailPage() {
   const params = useParams()
   const id = params.id as string
@@ -93,6 +133,7 @@ export default function WatchlistDetailPage() {
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
+  const [analyzeErrorId, setAnalyzeErrorId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshResult, setRefreshResult] = useState<string | null>(null)
 
@@ -110,23 +151,32 @@ export default function WatchlistDetailPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Detect if the query looks like a patent or application number
+  function looksLikeNumber(q: string) {
+    const bare = q.replace(/^US\s*/i, '').replace(/[\/,\s]/g, '')
+    return /^\d{7,11}$/.test(bare)
+  }
+
   async function search(page = 0) {
     if (!query.trim()) return
     setSearching(true)
     setSearchError(null)
     setSearchPage(page)
+
+    const useNumberLookup = searchMode === 'number' || looksLikeNumber(query)
+
     try {
       let url: string
-      if (searchMode === 'company') {
-        url = `/api/patents/company-search?company=${encodeURIComponent(query)}&exact=false&start=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`
+      if (useNumberLookup) {
+        url = `/api/patents/lookup?number=${encodeURIComponent(query)}`
       } else {
-        url = `/api/patents/lookup?q=${encodeURIComponent(query)}`
+        url = `/api/patents/company-search?company=${encodeURIComponent(query)}&exact=false&start=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`
       }
       const r = await fetch(url)
       const d = await r.json()
       if (!r.ok) { setSearchError(d.error || 'Search failed'); return }
 
-      if (searchMode === 'company') {
+      if (!useNumberLookup) {
         setSearchResults(d.patents || [])
         setSearchTotal(d.total || 0)
       } else {
@@ -226,6 +276,7 @@ export default function WatchlistDetailPage() {
 
   async function analyzeEntry(entryId: string) {
     setAnalyzingId(entryId)
+    setAnalyzeErrorId(null)
     try {
       const r = await fetch(`/api/watchlists/${id}/patents/analyze`, {
         method: 'POST',
@@ -241,25 +292,29 @@ export default function WatchlistDetailPage() {
             : e
           ),
         } : w)
+      } else {
+        setAnalyzeErrorId(entryId)
       }
+    } catch {
+      setAnalyzeErrorId(entryId)
     } finally {
       setAnalyzingId(null)
     }
   }
 
-  async function refreshAbstracts() {
+  async function refreshAbstracts(force = false) {
     setRefreshing(true)
     setRefreshResult(null)
     try {
       const r = await fetch(`/api/watchlists/${id}/patents/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(force ? { force: true } : {}),
       })
       const d = await r.json()
       if (r.ok) {
         if (d.refreshed === 0) {
-          setRefreshResult('All entries already have abstracts')
+          setRefreshResult('All entries already have full data')
         } else {
           setRefreshResult(`Updated ${d.refreshed} patent${d.refreshed !== 1 ? 's' : ''}${d.failed ? ` (${d.failed} failed)` : ''}`)
           const fresh = await (await fetch(`/api/watchlists/${id}`)).json()
@@ -318,7 +373,7 @@ export default function WatchlistDetailPage() {
         <h2 className="section-title mb-4">Search & Add Patents</h2>
 
         <div className="flex gap-1 mb-4 p-1 rounded-lg w-fit" style={{ background: muted }}>
-          {([['company', 'By Assignee', Building2], ['number', 'By Patent Number', Hash]] as const).map(([mode, label, Icon]) => (
+          {([['company', 'By Assignee', Building2], ['number', 'By Patent / App Number', Hash]] as const).map(([mode, label, Icon]) => (
             <button key={mode}
               onClick={() => { setSearchMode(mode); setSearchResults([]); setSearchError(null) }}
               className="text-sm px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5"
@@ -336,7 +391,7 @@ export default function WatchlistDetailPage() {
         <div className="flex gap-2">
           <input value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && search(0)}
-            placeholder={searchMode === 'company' ? 'e.g. Acme Corporation' : 'e.g. US11234567 or 18/336,362'}
+            placeholder="Company name, patent number (US12345678), or app number (18/336,362)"
             className="input flex-1" />
           <button onClick={() => search(0)} disabled={!query.trim() || searching}
             className="btn-primary flex items-center gap-2 px-5">
@@ -436,13 +491,22 @@ export default function WatchlistDetailPage() {
             <div className="flex items-center gap-3">
               {refreshResult && <span className="text-xs text-patent-muted">{refreshResult}</span>}
               <button
-                onClick={refreshAbstracts}
+                onClick={() => refreshAbstracts(false)}
                 disabled={refreshing}
                 className="btn-secondary text-xs flex items-center gap-1.5"
-                title="Fetch abstracts and latest data from USPTO for entries missing them"
+                title="Fetch data from USPTO for entries missing abstract or claims"
               >
                 {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {refreshing ? 'Refreshing…' : 'Refresh Data'}
+                {refreshing ? 'Refreshing…' : 'Refresh Missing'}
+              </button>
+              <button
+                onClick={() => refreshAbstracts(true)}
+                disabled={refreshing}
+                className="btn-secondary text-xs flex items-center gap-1.5"
+                title="Re-fetch all data including claims from USPTO for every entry"
+              >
+                {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {refreshing ? 'Refreshing…' : 'Refresh All'}
               </button>
             </div>
           )}
@@ -547,6 +611,11 @@ export default function WatchlistDetailPage() {
 
                     {/* AI Analysis section — always shown below abstract */}
                     <div className="mt-3">
+                      {analyzeErrorId === entry.id && (
+                        <p className="text-xs text-red-400 mb-2 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />Analysis failed — check server logs
+                        </p>
+                      )}
                       {entry.aiSummary ? (
                         <div className="rounded-lg p-3" style={{ background: muted, border: `1px solid ${border}` }}>
                           <div className="flex items-center justify-between mb-2">
@@ -615,6 +684,11 @@ export default function WatchlistDetailPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Claims */}
+                      {entry.claimsJson && entry.claimsJson.length > 0 && (
+                        <ClaimsSection claims={entry.claimsJson} light={light} border={border} muted={muted} />
+                      )}
 
                       {/* Notes */}
                       <div>

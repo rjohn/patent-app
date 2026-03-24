@@ -348,6 +348,9 @@ model WatchlistEntry {
   cpcCodes      String[]
   jurisdiction  String    @default("US")
 
+  // Full text (fetched via USPTO ODP CLM XML)
+  claimsJson    Json?
+
   // User-added notes
   notes         String?   @db.Text
 
