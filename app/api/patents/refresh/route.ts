@@ -474,6 +474,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
         expirationDate,
         inventors,
         assignee:          newAssignee,
+        docketNumber:      appMeta.docketNumber ?? null,
         cpcCodes,
         rawJsonData:       { ...slimJson(raw), documentBag: documents },
         ...(abstractData?.abstract   ? { abstract:   abstractData.abstract }   : {}),

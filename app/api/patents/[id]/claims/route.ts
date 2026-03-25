@@ -10,9 +10,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const patent = await prisma.patent.findUnique({
       where: { id },
-      select: { applicationNumber: true, patentNumber: true, abstract: true, claimsJson: true },
+      select: { applicationNumber: true, patentNumber: true, abstract: true, claimsJson: true, type: true },
     })
     if (!patent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Provisional applications have no examined claims
+    if (patent.type === 'PROVISIONAL') {
+      return NextResponse.json({
+        abstract: patent.abstract ?? null,
+        claims: [],
+        source: null,
+        message: 'Provisional applications do not have formal claims. A provisional establishes a priority date only — claims are filed in the subsequent non-provisional application.',
+      })
+    }
 
     // 1. DB cache
     if (patent.claimsJson && Array.isArray(patent.claimsJson) && (patent.claimsJson as any[]).length > 0) {

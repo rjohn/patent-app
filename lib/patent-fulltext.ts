@@ -64,22 +64,26 @@ export async function fetchClaimsFromOdp(appNumber: string): Promise<{
  */
 export function parseClmXml(xml: string): { abstract: string | null; claims: string[] } {
   const claims: string[] = []
-  const claimPattern = /<uspat:Claim\b[^>]*>([\s\S]*?)<\/uspat:Claim>/gi
+  // Match both uspat:Claim (newer ST.96) and pat:Claim (older schema)
+  const claimPattern = /<(?:uspat|pat):Claim\b[^>]*>([\s\S]*?)<\/(?:uspat|pat):Claim>/gi
   let match: RegExpExecArray | null
 
   while ((match = claimPattern.exec(xml)) !== null) {
     const text = match[1]
-      .replace(/<uspat:ClaimText>/gi, ' ')
-      .replace(/<\/uspat:ClaimText>/gi, '')
+      .replace(/<(?:uspat|pat):ClaimNumber[^>]*>[\s\S]*?<\/(?:uspat|pat):ClaimNumber>/gi, '')
+      .replace(/<(?:uspat|pat):ClaimText[^>]*>/gi, ' ')
+      .replace(/<\/(?:uspat|pat):ClaimText>/gi, '')
       .replace(/<[^>]+>/g, '')
       .replace(/\(Currently Amended\)\s*/gi, '')
       .replace(/\(Original\)\s*/gi, '')
       .replace(/\(Canceled\)\s*/gi, '')
       .replace(/\(Previously Presented\)\s*/gi, '')
       .replace(/\(New\)\s*/gi, '')
+      .replace(/\b(originalIndependent|originalDependent|currentlyAmendedIndependent|currentlyAmendedDependent|newIndependent|newDependent|canceledIndependent|canceledDependent)\b/gi, '')
       .replace(/\s+/g, ' ')
       .trim()
-    if (text) claims.push(text)
+    // Skip preamble notices (e.g. "This listing of claims will replace all prior versions...")
+    if (text && !/^this listing of claims/i.test(text)) claims.push(text)
   }
 
   return { abstract: null, claims }

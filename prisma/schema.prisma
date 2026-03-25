@@ -85,6 +85,7 @@ model Patent {
   jurisdiction      String?          @default("US")
   patentNumber      String?       @unique
   usptoId           String?       // USPTO internal ID
+  docketNumber      String?       // Attorney/law firm docket number
   
   // Bibliographic data
   title             String
@@ -140,6 +141,7 @@ model Patent {
   rawJsonData       Json?
 
   notifications  Notification[]
+  invoiceItems   InvoiceLineItem[]
 
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
@@ -215,6 +217,8 @@ model MaintenanceFee {
   
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+
+  invoiceItems InvoiceLineItem[]
 
   @@map("maintenance_fees")
 }
@@ -396,4 +400,51 @@ model NotificationRecipient {
 
   @@unique([notificationId, userId])
   @@map("notification_recipients")
+}
+
+// ─── Legal Invoices ───────────────────────────────────────────────────────────
+
+model LegalInvoice {
+  id            String             @id @default(cuid())
+  lawFirm       String
+  invoiceNumber String?
+  invoiceDate   DateTime?
+  totalAmount   Float?
+  currency      String             @default("USD")
+  parseStatus   InvoiceParseStatus @default(PARSED)
+  rawText       String?            @db.Text
+  notes         String?            @db.Text
+  pdfData       Bytes?
+  pdfName       String?
+  lineItems     InvoiceLineItem[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@map("legal_invoices")
+}
+
+model InvoiceLineItem {
+  id               String         @id @default(cuid())
+  invoiceId        String
+  invoice          LegalInvoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  docketNumber     String?
+  description      String?        @db.Text
+  serviceDate      DateTime?
+  hours            Float?
+  rate             Float?
+  amount           Float?
+  matchConfidence  String?        // EXACT | PARTIAL | NONE
+  patentId         String?
+  patent           Patent?        @relation(fields: [patentId], references: [id], onDelete: SetNull)
+  maintenanceFeeId String?
+  maintenanceFee   MaintenanceFee? @relation(fields: [maintenanceFeeId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
+
+  @@map("invoice_line_items")
+}
+
+enum InvoiceParseStatus {
+  PARSED
+  FAILED
+  PARTIAL
 }

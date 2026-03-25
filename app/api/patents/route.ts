@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
         { title:             { contains: q, mode: 'insensitive' } },
         { patentNumber:      { contains: q, mode: 'insensitive' } },
         { applicationNumber: { contains: q, mode: 'insensitive' } },
+        { epNumber:          { contains: q.replace(/^EP/i, ''), mode: 'insensitive' } },
+        { publicationNumber: { contains: q, mode: 'insensitive' } },
         { assignee:          { contains: q, mode: 'insensitive' } },
+        { docketNumber:      { contains: q, mode: 'insensitive' } },
         { abstract:          { contains: q, mode: 'insensitive' } },
       ]
     }

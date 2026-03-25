@@ -16,6 +16,7 @@ import {
   Database,
   LogOut,
   Eye,
+  Banknote,
 } from 'lucide-react'
 import { useAuth } from '@/context/auth-context'
 import { useTheme } from '@/context/theme-context'
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: '/patents',      label: 'Patents',              icon: FileText },
   { href: '/families',     label: 'Patent Families',      icon: GitBranch },
   { href: '/deadlines',    label: 'Deadlines & Fees',     icon: CalendarClock },
+  { href: '/legal-fees',   label: 'Legal Fees',           icon: Banknote },
   { href: '/watchlists',   label: 'Watchlists',           icon: Eye },
   { href: '/reports',      label: 'Reports',              icon: BarChart3 },
   { href: '/lookup',       label: 'Add Patent',           icon: SearchCode },

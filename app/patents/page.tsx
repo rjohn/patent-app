@@ -18,6 +18,7 @@ interface Patent {
   grantDate: string | null
   inventors: string[]
   assignee: string | null
+  docketNumber: string | null
   cpcCodes: string[]
   family: { id: string; name: string } | null
 }
@@ -367,6 +368,11 @@ export default function PatentsPage() {
                     {p.jurisdiction !== 'EP' && p.patentNumber && p.applicationNumber && (
                       <div className="text-[10px] mt-0.5 font-mono" style={{ color: 'var(--patent-muted)' }}>
                         {p.applicationNumber}
+                      </div>
+                    )}
+                    {p.docketNumber && (
+                      <div className="text-[10px] mt-0.5 font-mono" style={{ color: 'var(--patent-muted)' }}>
+                        {p.docketNumber}
                       </div>
                     )}
                   </td>

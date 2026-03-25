@@ -2,13 +2,13 @@
 
 import { useState, useEffect, use, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import FamilyTree, { PatentNode } from '@/components/FamilyTree'
 import { useTheme } from '@/context/theme-context'
 import {
   ArrowLeft, ExternalLink, Users, Building2,
-  GitBranch, DollarSign, FileText, Trash2, Loader2, X, AlertCircle, ChevronDown, ChevronUp, Plus, Activity, Calendar
+  GitBranch, DollarSign, FileText, Trash2, Loader2, X, AlertCircle, ChevronDown, ChevronUp, Plus, Activity, Calendar, Banknote
 } from 'lucide-react'
+import Link from 'next/link'
 
 interface MaintenanceFee {
   id: string; feeType: string; dueDate: string
@@ -100,24 +100,27 @@ function FeesTab({ patent, onFeesGenerated }: {
   const fees = patent.maintenanceFees
 
   if (fees.length === 0) return (
-    <div className="card p-10 text-center space-y-4">
-      <DollarSign className="w-9 h-9 mx-auto opacity-25 text-patent-muted" />
-      <div>
-        <p className="text-sm text-patent-muted mb-1">No maintenance fees tracked yet</p>
-        <p className="text-xs text-patent-muted opacity-60">
-          {patent.grantDate
-            ? 'Generate fees from the grant date on record'
-            : 'Refresh this patent first to pull the grant date from USPTO'}
-        </p>
+    <div className="space-y-4">
+      <div className="card p-10 text-center space-y-4">
+        <DollarSign className="w-9 h-9 mx-auto opacity-25 text-patent-muted" />
+        <div>
+          <p className="text-sm text-patent-muted mb-1">No maintenance fees tracked yet</p>
+          <p className="text-xs text-patent-muted opacity-60">
+            {patent.grantDate
+              ? 'Generate fees from the grant date on record'
+              : 'Refresh this patent first to pull the grant date from USPTO'}
+          </p>
+        </div>
+        {patent.grantDate && (
+          <button onClick={() => generate()} disabled={generating}
+            className="btn-primary mx-auto flex items-center gap-2 px-4 py-2 text-sm">
+            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+            Generate Maintenance Fees
+          </button>
+        )}
+        {genError && <p className="text-xs" style={{ color: '#f87171' }}>{genError}</p>}
       </div>
-      {patent.grantDate && (
-        <button onClick={() => generate()} disabled={generating}
-          className="btn-primary mx-auto flex items-center gap-2 px-4 py-2 text-sm">
-          {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-          Generate Maintenance Fees
-        </button>
-      )}
-      {genError && <p className="text-xs" style={{ color: '#f87171' }}>{genError}</p>}
+      <InvoiceItemsSection patentId={patent.id} />
     </div>
   )
 
@@ -165,10 +168,73 @@ function FeesTab({ patent, onFeesGenerated }: {
         </button>
       </div>
       {genError && <p className="text-xs text-center" style={{ color: '#f87171' }}>{genError}</p>}
+      <InvoiceItemsSection patentId={patent.id} />
     </div>
   )
 }
 
+interface InvoiceItemData {
+  id: string
+  docketNumber: string | null
+  description: string | null
+  serviceDate: string | null
+  amount: number | null
+  matchConfidence: string | null
+  invoice: { id: string; lawFirm: string; invoiceNumber: string | null; invoiceDate: string | null; currency: string }
+}
+
+function InvoiceItemsSection({ patentId }: { patentId: string }) {
+  const [items, setItems] = useState<InvoiceItemData[] | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/patents/${patentId}/invoice-items`)
+      .then(r => r.json())
+      .then(d => setItems(d.items ?? []))
+      .catch(() => setItems([]))
+  }, [patentId])
+
+  if (!items || items.length === 0) return null
+
+  const total = items.reduce((s, i) => s + (i.amount ?? 0), 0)
+
+  return (
+    <div className="card overflow-hidden mt-4">
+      <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Banknote className="w-4 h-4 text-patent-sky" />
+          <h3 className="section-title">Legal Invoice Items</h3>
+          <span className="text-xs text-patent-muted">{items.length} item{items.length !== 1 ? 's' : ''}</span>
+        </div>
+        {total > 0 && (
+          <span className="text-sm text-patent-muted">
+            Total: <span className="font-medium text-white">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </span>
+        )}
+      </div>
+      <div className="divide-y divide-white/5">
+        {items.map(item => (
+          <div key={item.id} className="px-6 py-3 flex items-start gap-4">
+            <div className="flex-1 min-w-0">
+              {item.description && <p className="text-sm text-white/80 mb-0.5">{item.description}</p>}
+              <div className="flex items-center gap-3 text-xs text-patent-muted flex-wrap">
+                <Link href={`/legal-fees/${item.invoice.id}`} className="text-patent-sky hover:underline">
+                  {item.invoice.lawFirm}{item.invoice.invoiceNumber ? ` #${item.invoice.invoiceNumber}` : ''}
+                </Link>
+                {item.serviceDate && <span>{new Date(item.serviceDate).toLocaleDateString()}</span>}
+                {item.docketNumber && <span className="font-mono">{item.docketNumber}</span>}
+              </div>
+            </div>
+            {item.amount != null && (
+              <span className="text-sm font-medium text-white/80 shrink-0">
+                ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function googlePatentsUrl(patentNumber: string | null): string | null {
   if (!patentNumber) return null

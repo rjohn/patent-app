@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Upload, FileJson, FileCode, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react'
+import { Upload, FileJson, FileCode, CheckCircle2, AlertCircle, Loader2, X, FileText, Banknote } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 type UploadStep = 'idle' | 'uploading' | 'parsing' | 'importing' | 'done' | 'error'
 
@@ -11,6 +12,171 @@ interface UploadResult {
   failed: number
   errors: string[]
 }
+
+// ── Invoice upload section ────────────────────────────────────────────────────
+
+type FileStatus = 'pending' | 'processing' | 'done' | 'error'
+
+interface InvoiceFile {
+  file: File
+  status: FileStatus
+  invoiceId?: string
+  error?: string
+}
+
+function InvoiceUploadSection() {
+  const router = useRouter()
+  const [files, setFiles] = useState<InvoiceFile[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const [running, setRunning] = useState(false)
+
+  const addFiles = (incoming: FileList | File[]) => {
+    const pdfs = Array.from(incoming).filter(
+      f => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf'
+    )
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.file.name + f.file.size))
+      const newOnes = pdfs.filter(f => !existing.has(f.name + f.size)).map(f => ({ file: f, status: 'pending' as FileStatus }))
+      return [...prev, ...newOnes]
+    })
+  }
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    addFiles(e.dataTransfer.files)
+  }, [])
+
+  const removeFile = (name: string) => {
+    setFiles(prev => prev.filter(f => f.file.name !== name))
+  }
+
+  const handleUploadAll = async () => {
+    const pending = files.filter(f => f.status === 'pending')
+    if (!pending.length) return
+    setRunning(true)
+
+    for (const item of pending) {
+      setFiles(prev => prev.map(f => f.file.name === item.file.name ? { ...f, status: 'processing' } : f))
+      try {
+        const formData = new FormData()
+        formData.append('file', item.file)
+        const res = await fetch('/api/legal-invoices', { method: 'POST', body: formData })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Upload failed')
+        setFiles(prev => prev.map(f => f.file.name === item.file.name ? { ...f, status: 'done', invoiceId: data.invoice.id } : f))
+      } catch (e) {
+        setFiles(prev => prev.map(f => f.file.name === item.file.name ? { ...f, status: 'error', error: e instanceof Error ? e.message : 'Failed' } : f))
+      }
+    }
+    setRunning(false)
+  }
+
+  const reset = () => setFiles([])
+  const pendingCount = files.filter(f => f.status === 'pending').length
+  const doneCount = files.filter(f => f.status === 'done').length
+
+  return (
+    <div className="card p-6 mb-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Banknote className="w-4 h-4 text-patent-sky" />
+        <h2 className="section-title">Upload Legal Invoices (PDF)</h2>
+      </div>
+      <p className="text-xs text-patent-muted mb-4">
+        Upload one or more PDF invoices from your law firm. Claude AI will extract line items and match them to your portfolio using docket numbers.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        className={`border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200 mb-4 ${
+          dragOver ? 'border-patent-sky/70 bg-patent-sky/5' : 'border-white/20 hover:border-white/30 hover:bg-white/5'
+        }`}
+      >
+        <FileText className={`w-7 h-7 mx-auto mb-2 ${dragOver ? 'text-patent-sky' : 'text-patent-muted'}`} />
+        <p className="text-white/80 font-medium text-sm mb-1">Drop PDF invoices here</p>
+        <p className="text-patent-muted text-xs mb-3">Multiple files supported</p>
+        <label className="btn-secondary cursor-pointer text-xs">
+          Browse PDFs
+          <input
+            type="file"
+            accept=".pdf,application/pdf"
+            multiple
+            onChange={(e) => { if (e.target.files) addFiles(e.target.files) }}
+            className="hidden"
+          />
+        </label>
+      </div>
+
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="space-y-2 mb-4">
+          {files.map(item => (
+            <div key={item.file.name} className="flex items-center gap-3 px-3 py-2 bg-white/5 rounded-lg border border-white/10">
+              <FileText className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{item.file.name}</p>
+                <p className="text-xs text-patent-muted">{(item.file.size / 1024).toFixed(1)} KB</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {item.status === 'pending' && (
+                  <span className="text-xs text-patent-muted">Pending</span>
+                )}
+                {item.status === 'processing' && (
+                  <span className="text-xs text-patent-sky flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Parsing...
+                  </span>
+                )}
+                {item.status === 'done' && (
+                  <span className="text-xs text-green-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Done
+                  </span>
+                )}
+                {item.status === 'error' && (
+                  <span className="text-xs text-red-400 flex items-center gap-1" title={item.error}>
+                    <AlertCircle className="w-3 h-3" /> Failed
+                  </span>
+                )}
+                {item.status === 'pending' && (
+                  <button onClick={() => removeFile(item.file.name)} className="btn-ghost p-0.5">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {item.status === 'done' && item.invoiceId && (
+                  <button onClick={() => router.push(`/legal-fees/${item.invoiceId}`)} className="text-xs text-patent-sky hover:underline">
+                    View
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-3">
+        {pendingCount > 0 && (
+          <button onClick={handleUploadAll} disabled={running} className="btn-primary text-sm flex items-center gap-2">
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
+            Parse {pendingCount} Invoice{pendingCount !== 1 ? 's' : ''}
+          </button>
+        )}
+        {files.length > 0 && !running && (
+          <button onClick={reset} className="btn-secondary text-sm">Clear All</button>
+        )}
+        {doneCount > 0 && !running && (
+          <button onClick={() => router.push('/legal-fees')} className="btn-ghost text-sm text-patent-sky">
+            View Legal Fees →
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Patent import section ─────────────────────────────────────────────────────
 
 export default function ImportPage() {
   const [step, setStep] = useState<UploadStep>('idle')
@@ -135,6 +301,9 @@ export default function ImportPage() {
           </div>
         )}
       </div>
+
+      {/* Invoice upload */}
+      <InvoiceUploadSection />
 
       {/* Supported formats */}
       <div className="card p-6 mb-6">
