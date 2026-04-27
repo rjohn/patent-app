@@ -98,8 +98,9 @@ model Patent {
   filingDate        DateTime?
   publicationDate   DateTime?
   grantDate         DateTime?
-  expirationDate    DateTime?
-  priorityDate      DateTime?
+  expirationDate         DateTime?
+  adjustedExpirationDate DateTime?  // Manually set: accounts for PTA, PTE, terminal disclaimers
+  priorityDate           DateTime?
   
   // Parties
   inventors         String[]      // Array of inventor names

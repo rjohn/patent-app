@@ -28,6 +28,7 @@ interface Patent {
   publicationDate: string | null
   grantDate: string | null
   expirationDate: string | null
+  adjustedExpirationDate: string | null
   inventors: string[]
   assignee: string | null
   attorney: string | null
@@ -60,6 +61,68 @@ function InfoRow({ label, value, mono }: { label: string; value: React.ReactNode
     <div className="flex items-start gap-3 py-2.5 last:border-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
       <span className="text-xs text-patent-muted w-44 flex-shrink-0 pt-0.5">{label}</span>
       <span className={`text-sm text-white flex-1 ${mono ? 'font-mono' : ''}`} style={mono ? { color: 'var(--patent-sky)' } : {}}>{value}</span>
+    </div>
+  )
+}
+
+function AdjustedExpirationRow({ patentId, value, onSaved }: {
+  patentId: string
+  value: string | null
+  onSaved: (v: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [input, setInput] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const startEdit = () => { setInput(value?.slice(0, 10) ?? ''); setEditing(true) }
+  const cancel = () => setEditing(false)
+
+  const save = async () => {
+    setSaving(true)
+    const adjustedExpirationDate = input ? new Date(input).toISOString() : null
+    await fetch(`/api/patents/${patentId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adjustedExpirationDate }),
+    })
+    onSaved(adjustedExpirationDate)
+    setEditing(false)
+    setSaving(false)
+  }
+
+  return (
+    <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <span className="text-xs text-patent-muted w-44 flex-shrink-0 pt-0.5">Adjusted Expiry</span>
+      {editing ? (
+        <div className="flex items-center gap-2 flex-1">
+          <input
+            type="date"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            className="text-sm bg-white/5 border border-white/20 rounded px-2 py-0.5 text-white focus:outline-none focus:border-patent-sky/50"
+          />
+          <button onClick={save} disabled={saving} className="text-xs text-green-400 hover:text-green-300 transition-colors">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+          </button>
+          <button onClick={cancel} className="text-xs text-patent-muted hover:text-white transition-colors">Cancel</button>
+          {value && (
+            <button onClick={async () => { setSaving(true); await fetch(`/api/patents/${patentId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adjustedExpirationDate: null }) }); onSaved(null); setEditing(false); setSaving(false) }} className="text-xs text-red-400 hover:text-red-300 transition-colors ml-2">
+              Clear
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 flex-1">
+          {value ? (
+            <span className="text-sm text-white">{value.slice(0, 10)}</span>
+          ) : (
+            <span className="text-xs text-patent-muted italic">Not set</span>
+          )}
+          <button onClick={startEdit} className="text-xs text-patent-muted hover:text-patent-sky transition-colors">
+            Edit
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -1051,7 +1114,7 @@ export default function PatentDetailPage({ params }: { params: any }) {
     { date: p.filingDate,      label: 'Filed',     color: '#4a90d9' },
     { date: p.publicationDate, label: 'Published',  color: '#eab308' },
     { date: p.grantDate,       label: 'Granted',    color: '#22c55e' },
-    { date: p.expirationDate,  label: 'Expires',    color: '#ef4444' },
+    { date: p.adjustedExpirationDate || p.expirationDate, label: p.adjustedExpirationDate ? 'Expires (Adj.)' : 'Expires', color: '#ef4444' },
   ].filter(t => t.date)
 
   const gPatentsUrl = googlePatentsUrl(p.patentNumber)
@@ -1252,6 +1315,7 @@ export default function PatentDetailPage({ params }: { params: any }) {
               <InfoRow label="Publication Date"       value={p.publicationDate?.slice(0,10)} />
               <InfoRow label="Grant Date"             value={p.grantDate?.slice(0,10)} />
               <InfoRow label="Expiration Date"        value={p.expirationDate?.slice(0,10)} />
+              <AdjustedExpirationRow patentId={p.id} value={p.adjustedExpirationDate} onSaved={(v) => setPatent(prev => prev ? { ...prev, adjustedExpirationDate: v } : prev)} />
               <InfoRow label="Assignee"               value={p.assignee} />
               <InfoRow label="Inventors"              value={p.inventors.join('; ') || null} />
               {appMeta?.examinerNameText && <InfoRow label="Examiner"    value={appMeta.examinerNameText} />}

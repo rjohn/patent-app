@@ -17,6 +17,7 @@ import {
   LogOut,
   Eye,
   Banknote,
+  HelpCircle,
 } from 'lucide-react'
 import { useAuth } from '@/context/auth-context'
 import { useTheme } from '@/context/theme-context'
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
 
 const BOTTOM_ITEMS = [
   { href: '/settings', label: 'Settings', icon: Settings },
+  { href: '/help',     label: 'Help',     icon: HelpCircle },
 ]
 
 export default function Sidebar() {
