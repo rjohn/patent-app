@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
     }
 
     const status = (p.status || 'GRANTED') as string
-    const isApplication = status === 'PENDING' || status === 'PUBLISHED'
+    const isApplication = !p.patent_number
 
     const saved = await prisma.patent.create({
       data: {

@@ -332,10 +332,12 @@ interface PatentRecord {
 interface RefreshResult {
   id: string
   patentNumber: string | null
+  applicationNumber?: string | null
   title: string
   status: 'updated' | 'unchanged' | 'error' | 'skipped'
   message?: string
   changes?: string[]
+  newlyGranted?: boolean
 }
 
 // ── EP refresh ────────────────────────────────────────────────────────────────
@@ -447,7 +449,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
 
     const existing = await prisma.patent.findUnique({
       where: { id: patent.id },
-      select: { status: true, title: true, grantDate: true, assignee: true, type: true, patentNumber: true, abstract: true, parentPatentId: true },
+      select: { status: true, title: true, grantDate: true, assignee: true, type: true, patentNumber: true, abstract: true, parentPatentId: true, source: true },
     })
 
     const changes: string[] = []
@@ -592,7 +594,12 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
       }
     }
 
-    return { id: patent.id, patentNumber: newPatentNum, title: newTitle, status: changes.length > 0 ? 'updated' : 'unchanged', changes }
+    const newlyGranted = !existing?.patentNumber && !!newPatentNum && existing?.source === 'CONTINUATION'
+    return {
+      id: patent.id, patentNumber: newPatentNum, applicationNumber: patent.applicationNumber,
+      title: newTitle, status: changes.length > 0 ? 'updated' : 'unchanged', changes,
+      ...(newlyGranted ? { newlyGranted: true } : {}),
+    }
   } catch (e) {
     return { id: patent.id, patentNumber: patent.patentNumber, title: patent.title, status: 'error', message: e instanceof Error ? e.message : 'Unknown error' }
   }

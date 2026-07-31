@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { FileText, Loader2, AlertCircle, ExternalLink, RefreshCw, GitBranch } from 'lucide-react'
+import { FileText, Loader2, AlertCircle, ExternalLink, RefreshCw, GitBranch, CheckCircle2, ArrowRight } from 'lucide-react'
 
 interface Application {
   id: string
@@ -18,6 +18,13 @@ interface Application {
   family: { id: string; name: string } | null
 }
 
+interface IssuedAlert {
+  id: string
+  applicationNumber: string | null
+  patentNumber: string
+  title: string
+}
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     GRANTED: 'status-granted', PENDING: 'status-pending',
@@ -26,12 +33,54 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={map[status] || 'status-badge'}>{status}</span>
 }
 
+function IssuedDialog({ alert, onMove, onKeep, moving }: {
+  alert: IssuedAlert
+  onMove: () => void
+  onKeep: () => void
+  moving: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <div className="card max-w-md w-full p-6 animate-slide-up" style={{ borderColor: 'rgba(34,197,94,0.3)' }}>
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(34,197,94,0.15)' }}>
+            <CheckCircle2 className="w-5 h-5" style={{ color: '#4ade80' }} />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-white">Application Issued</h2>
+            <p className="text-sm mt-1" style={{ color: 'var(--patent-muted)' }}>
+              Application {alert.applicationNumber} has been issued as{' '}
+              <span className="font-mono font-semibold" style={{ color: 'var(--patent-sky)' }}>US {alert.patentNumber}</span>
+            </p>
+            <p className="text-sm mt-1 text-white line-clamp-2">{alert.title}</p>
+          </div>
+        </div>
+        <p className="text-sm mb-5" style={{ color: 'var(--patent-muted)' }}>
+          Would you like to move this to the patent portfolio?
+        </p>
+        <div className="flex gap-3">
+          <button onClick={onMove} disabled={moving} className="btn-primary flex items-center gap-2 flex-1 justify-center">
+            {moving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+            {moving ? 'Moving…' : 'Move to Portfolio'}
+          </button>
+          <button onClick={onKeep} disabled={moving} className="btn-secondary flex-1">
+            Keep in Applications
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ApplicationsPage() {
-  const [apps, setApps]     = useState<Application[]>([])
-  const [total, setTotal]   = useState(0)
+  const [apps, setApps]       = useState<Application[]>([])
+  const [total, setTotal]     = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState<string | null>(null)
+  const [error, setError]     = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState<string | null>(null)
+  const [issuedAlert, setIssuedAlert] = useState<IssuedAlert | null>(null)
+  const [moving, setMoving]   = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -46,13 +95,39 @@ export default function ApplicationsPage() {
 
   const refresh = async (id: string) => {
     setRefreshing(id)
-    await fetch(`/api/patents/refresh?id=${id}`)
+    const res = await fetch(`/api/patents/refresh?id=${id}`)
+    const data = await res.json()
     setRefreshing(null)
+    if (data.newlyGranted && data.patentNumber) {
+      setIssuedAlert({ id, applicationNumber: data.applicationNumber, patentNumber: data.patentNumber, title: data.title })
+    } else {
+      load()
+    }
+  }
+
+  const moveToPortfolio = async () => {
+    if (!issuedAlert) return
+    setMoving(true)
+    await fetch(`/api/patents/${issuedAlert.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'PORTFOLIO' }),
+    })
+    setMoving(false)
+    setIssuedAlert(null)
     load()
   }
 
   return (
     <div className="p-8 animate-fade-in">
+      {issuedAlert && (
+        <IssuedDialog
+          alert={issuedAlert}
+          onMove={moveToPortfolio}
+          onKeep={() => { setIssuedAlert(null); load() }}
+          moving={moving}
+        />
+      )}
       <div className="flex items-start justify-between mb-6">
         <div>
           <Link href="/dashboard" className="flex items-center gap-1.5 text-xs text-patent-muted hover:text-white transition-colors mb-3">

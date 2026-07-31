@@ -13,6 +13,7 @@ import Link from 'next/link'
 interface MaintenanceFee {
   id: string; feeType: string; dueDate: string
   gracePeriodEnd: string; status: string; paidAmount: number | null
+  amount: number | null; currency: string; notes: string | null
 }
 
 interface Patent {
@@ -127,10 +128,22 @@ function AdjustedExpirationRow({ patentId, value, onSaved }: {
   )
 }
 
-function feeLabel(t: string) { return t.replace('MAINTENANCE_', '').replace('_', '.') + 'yr Maintenance' }
-function feeAmount(t: string) {
-  if (t.includes('3_5')) return '$800'; if (t.includes('7_5')) return '$1,850'
-  if (t.includes('11_5')) return '$3,700'; return '—'
+function feeLabel(fee: MaintenanceFee) {
+  if (fee.feeType === 'ANNUITY' && fee.notes) return fee.notes
+  if (fee.feeType === 'ANNUITY') return 'Annual Renewal Fee'
+  const m = fee.feeType.match(/(\d+)_(\d+)/)
+  if (m) return `${m[1]}.${m[2]}yr Maintenance`
+  return fee.feeType.replace(/_/g, ' ')
+}
+function feeAmount(fee: MaintenanceFee) {
+  if (fee.amount != null) {
+    const sym = fee.currency === 'EUR' ? '€' : '$'
+    return `${sym}${fee.amount.toLocaleString()}`
+  }
+  if (fee.feeType.includes('3_5'))  return '$800'
+  if (fee.feeType.includes('7_5'))  return '$1,850'
+  if (fee.feeType.includes('11_5')) return '$3,700'
+  return '—'
 }
 
 function FeesTab({ patent, onFeesGenerated }: {
@@ -139,6 +152,9 @@ function FeesTab({ patent, onFeesGenerated }: {
 }) {
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError]     = useState<string | null>(null)
+
+  const isEP = patent.jurisdiction === 'EP'
+  const canGenerate = isEP ? !!patent.filingDate : !!patent.grantDate
 
   const generate = async (silent = false) => {
     if (!silent) setGenerating(true)
@@ -152,10 +168,10 @@ function FeesTab({ patent, onFeesGenerated }: {
     finally { if (!silent) setGenerating(false) }
   }
 
-  // Auto-sync on mount if fees exist but none are PAID — stale records from before event-checking was added
+  // Auto-sync US patents on mount if fees exist but none are PAID
   useEffect(() => {
     const fees = patent.maintenanceFees
-    if (fees.length > 0 && patent.rawJsonData && fees.every(f => f.status !== 'PAID')) {
+    if (!isEP && fees.length > 0 && patent.rawJsonData && fees.every(f => f.status !== 'PAID')) {
       generate(true)
     }
   }, [patent.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -167,18 +183,20 @@ function FeesTab({ patent, onFeesGenerated }: {
       <div className="card p-10 text-center space-y-4">
         <DollarSign className="w-9 h-9 mx-auto opacity-25 text-patent-muted" />
         <div>
-          <p className="text-sm text-patent-muted mb-1">No maintenance fees tracked yet</p>
+          <p className="text-sm text-patent-muted mb-1">
+            {isEP ? 'No renewal fees tracked yet' : 'No maintenance fees tracked yet'}
+          </p>
           <p className="text-xs text-patent-muted opacity-60">
-            {patent.grantDate
-              ? 'Generate fees from the grant date on record'
-              : 'Refresh this patent first to pull the grant date from USPTO'}
+            {isEP
+              ? (patent.filingDate ? 'Generate the full EP annual renewal schedule based on filing date' : 'No filing date available for this patent')
+              : (patent.grantDate  ? 'Generate fees from the grant date on record' : 'Refresh this patent first to pull the grant date from USPTO')}
           </p>
         </div>
-        {patent.grantDate && (
+        {canGenerate && (
           <button onClick={() => generate()} disabled={generating}
             className="btn-primary mx-auto flex items-center gap-2 px-4 py-2 text-sm">
             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-            Generate Maintenance Fees
+            {isEP ? 'Generate EP Renewal Schedule' : 'Generate Maintenance Fees'}
           </button>
         )}
         {genError && <p className="text-xs" style={{ color: '#f87171' }}>{genError}</p>}
@@ -195,10 +213,10 @@ function FeesTab({ patent, onFeesGenerated }: {
         <div className="card p-4 flex items-center gap-4" style={{ borderColor: 'rgba(234,179,8,0.3)', background: 'rgba(234,179,8,0.05)' }}>
           <DollarSign className="w-5 h-5 flex-shrink-0" style={{ color: '#fbbf24' }} />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>Next: {feeLabel(nextDue.feeType)}</p>
+            <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>Next: {feeLabel(nextDue)}</p>
             <p className="text-xs text-patent-muted">Due {nextDue.dueDate?.slice(0,10)} · Grace period ends {nextDue.gracePeriodEnd?.slice(0,10)}</p>
           </div>
-          <span className="text-lg font-bold" style={{ color: '#fbbf24' }}>{feeAmount(nextDue.feeType)}</span>
+          <span className="text-lg font-bold" style={{ color: '#fbbf24' }}>{feeAmount(nextDue)}</span>
         </div>
       )}
       <div className="card overflow-hidden">
@@ -209,10 +227,10 @@ function FeesTab({ patent, onFeesGenerated }: {
           <tbody>
             {fees.map(f => (
               <tr key={f.id}>
-                <td className="text-sm">{feeLabel(f.feeType)}</td>
+                <td className="text-sm">{feeLabel(f)}</td>
                 <td className="text-sm text-patent-muted font-mono">{f.dueDate?.slice(0,10)}</td>
                 <td className="text-sm text-patent-muted font-mono">{f.gracePeriodEnd?.slice(0,10)}</td>
-                <td className="text-sm font-semibold" style={{ color: 'var(--patent-gold)' }}>{feeAmount(f.feeType)}</td>
+                <td className="text-sm font-semibold" style={{ color: 'var(--patent-gold)' }}>{feeAmount(f)}</td>
                 <td>
                   <span className={f.status === 'PAID' ? 'status-granted' : f.status === 'OVERDUE' ? 'status-abandoned' : f.status === 'DUE' ? 'status-published' : 'status-pending'}>
                     {f.status}
@@ -227,7 +245,7 @@ function FeesTab({ patent, onFeesGenerated }: {
         <button onClick={() => generate()} disabled={generating}
           className="btn-ghost text-xs flex items-center gap-1.5">
           {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <DollarSign className="w-3 h-3" />}
-          Regenerate Fees
+          {isEP ? 'Regenerate Schedule' : 'Regenerate Fees'}
         </button>
       </div>
       {genError && <p className="text-xs text-center" style={{ color: '#f87171' }}>{genError}</p>}
@@ -405,7 +423,15 @@ function directionLabel(dir: string) {
   return { label: dir || '—', color: 'var(--patent-muted)' }
 }
 
-function EventHistoryTab({ patentId }: { patentId: string }) {
+function EventHistoryTab({ patentId, jurisdiction, epNumber, publicationNumber }: {
+  patentId: string
+  jurisdiction?: string | null
+  epNumber?: string | null
+  publicationNumber?: string | null
+}) {
+  const isEP = jurisdiction === 'EP'
+  const epRegNum = epNumber || publicationNumber?.replace(/^EP/i, '') || null
+  const epoRegisterUrl = epRegNum ? `https://register.epo.org/application?number=EP${epRegNum}` : null
   const { theme } = useTheme()
   const light = theme === 'light'
   const [events, setEvents]     = useState<PatentEvent[]>([])
@@ -418,17 +444,26 @@ function EventHistoryTab({ patentId }: { patentId: string }) {
   const [yearFilter, setYearFilter] = useState<string>('all')
   const [panel, setPanel]       = useState<'events' | 'documents'>('events')
   const [docSource, setDocSource] = useState<string>('')
+  const [eventSource, setEventSource]   = useState<string>('')
+  const [eventFetchedAt, setEventFetchedAt] = useState<string | null>(null)
+  const [refreshing, setRefreshing]     = useState(false)
 
-  useEffect(() => {
-    fetch(`/api/patents/${patentId}/events`)
+  const loadEvents = (refresh = false) => {
+    setLoading(true)
+    setError(null)
+    if (refresh) setRefreshing(true)
+    const url = `/api/patents/${patentId}/events${refresh ? '?refresh=true' : ''}`
+    fetch(url)
       .then(r => r.json())
       .then(d => {
-        if (d.events) setEvents(d.events)
+        if (d.events) { setEvents(d.events); setEventSource(d.source || ''); setEventFetchedAt(d.fetchedAt ?? null) }
         else setError(d.error || 'No event data available')
       })
       .catch(() => setError('Failed to load events'))
-      .finally(() => setLoading(false))
-  }, [patentId])
+      .finally(() => { setLoading(false); setRefreshing(false) })
+  }
+
+  useEffect(() => { loadEvents() }, [patentId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setDocsLoading(true)
@@ -511,16 +546,57 @@ function EventHistoryTab({ patentId }: { patentId: string }) {
             <div className="card p-10 text-center">
               <Activity className="w-8 h-8 mx-auto mb-3 opacity-25 text-patent-muted" />
               <p className="text-sm text-patent-muted">{error}</p>
-              <p className="text-xs text-patent-muted mt-1 opacity-60">Event history is available for US patents imported from USPTO ODP</p>
+              <p className="text-xs text-patent-muted mt-1 opacity-60">
+                {isEP
+                  ? 'Prosecution history is fetched live from the EPO OPS register API'
+                  : 'Event history is available for US patents imported from USPTO ODP'}
+              </p>
+              {isEP && epoRegisterUrl && (
+                <a href={epoRegisterUrl} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs mt-3"
+                  style={{ color: 'var(--patent-sky)' }}>
+                  View on EPO Register <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
             </div>
           ) : events.length === 0 ? (
             <div className="card p-10 text-center">
               <Activity className="w-8 h-8 mx-auto mb-3 opacity-25 text-patent-muted" />
               <p className="text-sm text-patent-muted">No event history found</p>
-              <p className="text-xs text-patent-muted mt-1 opacity-60">Try refreshing this patent to pull the latest USPTO data</p>
+              <p className="text-xs text-patent-muted mt-1 opacity-60">
+                {isEP ? 'No procedural steps found in EPO Register' : 'Try refreshing this patent to pull the latest USPTO data'}
+              </p>
             </div>
           ) : (
             <>
+              {/* EP info banner */}
+              {isEP && (
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-xs"
+                  style={{ background: 'rgba(74,144,217,0.08)', border: '1px solid rgba(74,144,217,0.15)', color: 'var(--patent-muted)' }}>
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span>EPO Register</span>
+                    {eventSource === 'stored' && eventFetchedAt && (
+                      <span className="opacity-60">· cached {new Date(eventFetchedAt).toLocaleDateString()}</span>
+                    )}
+                    {eventSource === 'live' && <span className="opacity-60">· fetched live</span>}
+                  </span>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <button onClick={() => loadEvents(true)} disabled={refreshing}
+                      className="flex items-center gap-1 hover:text-white transition-colors disabled:opacity-50"
+                      style={{ color: 'var(--patent-sky)' }}>
+                      {refreshing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Calendar className="w-3 h-3" />}
+                      Refresh
+                    </button>
+                    {epoRegisterUrl && (
+                      <a href={epoRegisterUrl} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 hover:text-white transition-colors"
+                        style={{ color: 'var(--patent-sky)' }}>
+                        Full Register <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* Filters */}
               <div className="flex flex-wrap items-center gap-2 justify-between">
                 <p className="text-xs text-patent-muted">{events.length} events · {sortedYears.length} years</p>
@@ -1118,6 +1194,9 @@ export default function PatentDetailPage({ params }: { params: any }) {
   ].filter(t => t.date)
 
   const gPatentsUrl = googlePatentsUrl(p.patentNumber)
+  const espacenetUrl = p.jurisdiction === 'EP' && p.publicationNumber
+    ? `https://worldwide.espacenet.com/patent/search?q=pn%3D${encodeURIComponent(p.publicationNumber)}`
+    : null
 
   // Find the granted patent PDF in the stored documentBag
   const docBag: any[] = raw?.documentBag || []
@@ -1234,6 +1313,12 @@ export default function PatentDetailPage({ params }: { params: any }) {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {espacenetUrl && (
+              <a href={espacenetUrl} target="_blank" rel="noopener noreferrer"
+                className="btn-ghost flex items-center gap-1.5 text-xs">
+                <ExternalLink className="w-3.5 h-3.5" /> Espacenet
+              </a>
+            )}
             {gPatentsUrl && (
               <a href={gPatentsUrl} target="_blank" rel="noopener noreferrer"
                 className="btn-ghost flex items-center gap-1.5 text-xs">
@@ -1395,7 +1480,7 @@ export default function PatentDetailPage({ params }: { params: any }) {
 
       {/* Family */}
       {tab === 'family' && <FamilyTreeTab patentId={id} parentPatent={p.parentPatent} childPatents={p.childPatents} />}
-      {tab === 'history' && <EventHistoryTab patentId={id} />}
+      {tab === 'history' && <EventHistoryTab patentId={id} jurisdiction={p.jurisdiction} publicationNumber={p.publicationNumber} />}
     </div>
   )
 }

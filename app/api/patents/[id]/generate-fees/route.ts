@@ -75,15 +75,143 @@ async function fetchFeeStatusFromUSPTO(patentNumber: string): Promise<Map<string
   return result
 }
 
+// ── EP renewal fee schedule (EPO official rates, EUR) ─────────────────────────
+const EP_RENEWAL_AMOUNTS: Record<number, number> = {
+  2: 130, 3: 160, 4: 190, 5: 270, 6: 370, 7: 470, 8: 580, 9: 700, 10: 820,
+  11: 950, 12: 1090, 13: 1230, 14: 1380, 15: 1530, 16: 1680, 17: 1830, 18: 1980, 19: 2135, 20: 2290,
+}
+
+function generateEpRenewalFees(filingDate: Date) {
+  const now = new Date()
+  return Array.from({ length: 19 }, (_, i) => i + 2).map(yr => {
+    const due = new Date(filingDate)
+    due.setFullYear(due.getFullYear() + yr)
+    const grace = new Date(due)
+    grace.setMonth(grace.getMonth() + 6)
+    const status = grace < now ? 'OVERDUE' : due < now ? 'DUE' : 'UPCOMING'
+    return { yr, due, grace, status }
+  })
+}
+
+// Match a fee payment date to the renewal year using the filing date anniversaries
+function matchPaymentToYear(paymentDate: Date, filingDate: Date): number | null {
+  for (let yr = 2; yr <= 20; yr++) {
+    const due = new Date(filingDate)
+    due.setFullYear(due.getFullYear() + yr)
+    const grace = new Date(due)
+    grace.setMonth(grace.getMonth() + 6)
+    // Payment must fall within the window: up to 12 months before due through grace end
+    const windowStart = new Date(due)
+    windowStart.setFullYear(windowStart.getFullYear() - 1)
+    if (paymentDate >= windowStart && paymentDate <= grace) return yr
+  }
+  return null
+}
+
+// Fetch EPIDOSNRFE2 (renewal fee paid) events from EPO register
+let _epTokenCache: { token: string; expires: number } | null = null
+async function getEpToken(): Promise<string | null> {
+  if (_epTokenCache && Date.now() < _epTokenCache.expires - 30000) return _epTokenCache.token
+  const key = process.env.EPO_OPS_KEY; const secret = process.env.EPO_OPS_SECRET
+  if (!key || !secret) return null
+  try {
+    const res = await fetch('https://ops.epo.org/3.2/auth/accesstoken', {
+      method: 'POST',
+      headers: { Authorization: `Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=client_credentials', signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    _epTokenCache = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 }
+    return _epTokenCache.token
+  } catch { return null }
+}
+
+async function fetchEpRenewalPayments(epNumber: string): Promise<Date[]> {
+  const token = await getEpToken()
+  if (!token) return []
+  const docId = /^EP/i.test(epNumber) ? epNumber : `EP${epNumber}`
+  try {
+    const res = await fetch(`https://ops.epo.org/3.2/rest-services/register/publication/epodoc/${docId}/events`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/xml' },
+      signal: AbortSignal.timeout(12000),
+    })
+    if (!res.ok) return []
+    const xml = await res.text()
+    const dates: Date[] = []
+    const re = /<(?:[^:>]+:)?dossier-event[\s\S]*?<\/(?:[^:>]+:)?dossier-event>/gi
+    let m
+    while ((m = re.exec(xml)) !== null) {
+      const block = m[0]
+      if (!block.includes('EPIDOSNRFE2')) continue
+      const dateMatch = block.match(/<(?:[^:>]+:)?date[^>]*>(\d{8})<\/(?:[^:>]+:)?date>/i)
+      if (dateMatch) {
+        const d = dateMatch[1]
+        dates.push(new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`))
+      }
+    }
+    return dates
+  } catch { return [] }
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
 
     const patent = await prisma.patent.findUnique({
       where: { id },
-      select: { id: true, grantDate: true, jurisdiction: true, status: true, patentNumber: true, rawJsonData: true }
+      select: { id: true, grantDate: true, filingDate: true, jurisdiction: true, status: true, patentNumber: true, epNumber: true, publicationNumber: true, rawJsonData: true }
     })
     if (!patent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // ── EP patent: generate annual renewal fees from filing date ──────────────
+    if (patent.jurisdiction === 'EP') {
+      if (!patent.filingDate) {
+        return NextResponse.json({ error: 'No filing date on record for this EP patent.' }, { status: 422 })
+      }
+
+      // Fetch EPO register events to detect paid renewal fees
+      const epNum = patent.epNumber
+        || patent.publicationNumber?.replace(/^EP/i, '')
+        || patent.patentNumber?.replace(/^EP/i, '')
+        || null
+      const paymentDates = epNum ? await fetchEpRenewalPayments(epNum) : []
+
+      // Map payment dates → renewal year
+      const paidYears = new Set<number>()
+      const paidDateByYear = new Map<number, Date>()
+      for (const pd of paymentDates) {
+        const yr = matchPaymentToYear(pd, patent.filingDate)
+        if (yr) { paidYears.add(yr); paidDateByYear.set(yr, pd) }
+      }
+
+      await prisma.maintenanceFee.deleteMany({ where: { patentId: id } })
+
+      const feeRows = generateEpRenewalFees(patent.filingDate)
+      await Promise.all(feeRows.map(({ yr, due, grace, status }) => {
+        const isPaid = paidYears.has(yr)
+        return prisma.maintenanceFee.create({
+          data: {
+            patentId:       id,
+            feeType:        'ANNUITY' as any,
+            dueDate:        due,
+            gracePeriodEnd: grace,
+            status:         isPaid ? 'PAID' : status as any,
+            amount:         EP_RENEWAL_AMOUNTS[yr] ?? null,
+            currency:       'EUR',
+            notes:          `Year ${yr} Renewal`,
+            ...(isPaid ? { paidDate: paidDateByYear.get(yr) } : {}),
+          },
+        })
+      }))
+
+      const created = await prisma.maintenanceFee.findMany({
+        where: { patentId: id },
+        orderBy: { dueDate: 'asc' },
+      })
+      return NextResponse.json({ fees: created, count: created.length, paidFromEpo: Array.from(paidYears) })
+    }
+
     if (!patent.grantDate) {
       return NextResponse.json({ error: 'No grant date on record. Try refreshing this patent first.' }, { status: 422 })
     }

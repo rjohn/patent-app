@@ -10,10 +10,72 @@ Full-stack patent portfolio management application. Tracks US and EP patents, ap
 
 ---
 
+## Architecture
+
+### Infrastructure
+
+| Layer | Choice | Version |
+|---|---|---|
+| Framework | Next.js | 14.1.0 |
+| Language | TypeScript | ^5 |
+| Database | PostgreSQL via Supabase | — |
+| ORM | Prisma | ^5.10 |
+| Hosting | Vercel | — |
+| Styling | Tailwind CSS | ^3.3 |
+
+**Supabase** provides managed PostgreSQL + Auth + Storage. Prisma requires two connection strings:
+- `DATABASE_URL` — pooled (PgBouncer) for runtime queries
+- `DIRECT_URL` — direct connection for `prisma db push` / migrations
+
+Auth is half-wired: `@supabase/supabase-js` and `@supabase/auth-helpers-nextjs` are installed, `User.supabaseId` bridges to Supabase Auth, but session middleware is not implemented — all routes are currently unprotected.
+
+**Prisma** uses `db push` (no migration history). Schema-first, no migration files checked in. `prisma generate` runs at build time via `"build": "prisma generate && next build"`.
+
+### UI Components
+
+**Radix UI primitives** (headless, unstyled) — no shadcn/ui, components are hand-rolled with Tailwind:
+
+| Package | Version | Used for |
+|---|---|---|
+| `@radix-ui/react-alert-dialog` | ^1.0.5 | Destructive confirmation dialogs |
+| `@radix-ui/react-dialog` | ^1.0.5 | Modals / drawers |
+| `@radix-ui/react-dropdown-menu` | ^2.0.6 | Context menus, action menus |
+| `@radix-ui/react-select` | ^2.0.0 | Styled select dropdowns |
+| `@radix-ui/react-tabs` | ^1.0.4 | Tab panels |
+| `@radix-ui/react-tooltip` | ^1.0.7 | Hover tooltips |
+
+Utility packages: `clsx ^2.1.0` + `tailwind-merge ^2.2.1` (combined as `cn()`), `lucide-react ^0.323.0` (icons), `react-hot-toast ^2.4.1` (toasts).
+
+### Data & Visualization
+
+| Package | Version | Purpose |
+|---|---|---|
+| `d3` | ^7.9.0 | Patent family / continuity tree (`FamilyTree.tsx`) |
+| `date-fns` | ^3.3.1 | Date arithmetic for maintenance fee calculations |
+| `xlsx` | ^0.18.5 | Excel export |
+| `xml2js` | ^0.6.2 | USPTO XML parsing (claims documents) |
+| `zod` | ^3.22.4 | Runtime validation on API inputs |
+
+### AI Integration
+
+`@anthropic-ai/sdk ^0.78.0` — Claude API for watchlist portfolio analysis. Called server-side from API routes only.
+
+### Key Architectural Decisions
+
+1. **Radix + hand-rolled components** — no shadcn. More control over dark theme; more boilerplate.
+2. **Prisma `db push` not migrations** — faster iteration, no migration history. Schema rollbacks require manual SQL.
+3. **External API proxy pattern** — USPTO PDF downloads require an API key that can't be set from browser `<a>` tags. Server-side proxy route adds the header and streams the PDF back.
+4. **`rawJsonData` caching** — slimmed USPTO response stored as `Json?` on Patent model to avoid re-fetching. Live fetch is the fallback when empty.
+5. **Self-relation for continuations** — `Patent.parentPatentId` → self-relation `"PatentContinuations"` enables recursive tree queries.
+6. **No auth middleware** — all routes unprotected. Supabase Auth SDK is installed but session checks not enforced.
+
+---
+
 ## Environment Variables
 
 ```
-DATABASE_URL=               # Supabase PostgreSQL connection string
+DATABASE_URL=               # Supabase pooled connection (Prisma runtime)
+DIRECT_URL=                 # Supabase direct connection (Prisma migrations/db push)
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 USPTO_API_KEY=              # USPTO Open Data Portal API key (optional but recommended)

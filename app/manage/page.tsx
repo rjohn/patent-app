@@ -326,8 +326,8 @@ function RefreshPanel({ patents, onComplete }: { patents: Patent[]; onComplete: 
             <RefreshCw className="w-4 h-4" style={{color:'var(--patent-sky)'}}/>
           </div>
           <div>
-            <h2 className="font-semibold text-white text-sm">Refresh from USPTO</h2>
-            <p className="text-xs text-patent-muted">Re-fetch live data for all {patents.length} patents from the USPTO Open Data Portal</p>
+            <h2 className="font-semibold text-white text-sm">Refresh Patent Data</h2>
+            <p className="text-xs text-patent-muted">Re-fetch live data for all {patents.length} patents from USPTO or EPO</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -666,7 +666,7 @@ function ContinuityTreeTab() {
           <p className="text-sm text-patent-muted">
             {patents.length === 0 ? 'No patents in portfolio yet' :
              search ? 'No patents match your filter' :
-             'No continuation relationships found — refresh patents from USPTO to populate continuity links'}
+             'No continuation relationships found — refresh US patents to populate continuity links'}
           </p>
         </div>
       ) : (
@@ -838,7 +838,7 @@ export default function ManagePage() {
             <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
           </Link>
           <h1 className="page-title">Data Management</h1>
-          <p className="text-muted mt-1">Edit patent fields, update fee statuses, and refresh data from USPTO</p>
+          <p className="text-muted mt-1">Edit patent fields, update fee statuses, and refresh data from patent offices</p>
         </div>
       </div>
 
@@ -874,9 +874,9 @@ export default function ManagePage() {
               <Wifi className="w-4 h-4" style={{color:'var(--patent-sky)'}}/>
             </div>
             <div>
-              <h2 className="font-semibold text-white text-sm">Refresh from USPTO</h2>
+              <h2 className="font-semibold text-white text-sm">Refresh Patent Data</h2>
               <p className="text-xs text-patent-muted mt-0.5">
-                Re-fetches live data for {search || statusFilter !== 'ALL' ? `${filteredPatents.length} filtered` : `all ${patents.length}`} patents from the USPTO Open Data Portal.
+                Re-fetches live data for {search || statusFilter !== 'ALL' ? `${filteredPatents.length} filtered` : `all ${patents.length}`} patents from USPTO (US) or EPO (EP).
                 Updates status, title, assignee, grant dates, CPC codes, and raw JSON.
               </p>
             </div>

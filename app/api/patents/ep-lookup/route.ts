@@ -282,25 +282,34 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // EP renewal fees: years 3-20, due each anniversary of filing
-    // EPO fees are annual starting year 3; we auto-create years 3, 5, 7, 10, 13 as milestones
-    if (saved.filingDate && saved.status === 'GRANTED') {
-      const renewalYears = [3, 5, 7, 10, 13]
-      await Promise.allSettled(renewalYears.map(yr => {
-        const due = new Date(saved.filingDate!)
-        due.setFullYear(due.getFullYear() + yr)
-        const grace = new Date(due)
-        grace.setMonth(grace.getMonth() + 6)
-        return prisma.maintenanceFee.create({
-          data: {
-            patentId:       saved.id,
-            feeType:        `EP_RENEWAL_YEAR_${yr}` as any,
-            dueDate:        due,
-            gracePeriodEnd: grace,
-            status:         due < new Date() ? 'OVERDUE' : 'UPCOMING',
-          },
+    // EP renewal fees: years 2-20, due each anniversary of filing
+    if (saved.filingDate) {
+      const EP_AMOUNTS: Record<number, number> = {
+        2: 130, 3: 160, 4: 190, 5: 270, 6: 370, 7: 470, 8: 580, 9: 700, 10: 820,
+        11: 950, 12: 1090, 13: 1230, 14: 1380, 15: 1530, 16: 1680, 17: 1830, 18: 1980, 19: 2135, 20: 2290,
+      }
+      const now = new Date()
+      await Promise.allSettled(
+        Array.from({ length: 19 }, (_, i) => i + 2).map(yr => {
+          const due = new Date(saved.filingDate!)
+          due.setFullYear(due.getFullYear() + yr)
+          const grace = new Date(due)
+          grace.setMonth(grace.getMonth() + 6)
+          const status = grace < now ? 'OVERDUE' : due < now ? 'DUE' : 'UPCOMING'
+          return prisma.maintenanceFee.create({
+            data: {
+              patentId:       saved.id,
+              feeType:        'ANNUITY' as any,
+              dueDate:        due,
+              gracePeriodEnd: grace,
+              status:         status as any,
+              amount:         EP_AMOUNTS[yr] ?? null,
+              currency:       'EUR',
+              notes:          `Year ${yr} Renewal`,
+            },
+          })
         })
-      }))
+      )
     }
 
     return NextResponse.json({ success: true, patent: saved }, { status: 201 })
