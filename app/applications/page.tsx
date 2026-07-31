@@ -95,13 +95,18 @@ export default function ApplicationsPage() {
 
   const refresh = async (id: string) => {
     setRefreshing(id)
-    const res = await fetch(`/api/patents/refresh?id=${id}`)
-    const data = await res.json()
-    setRefreshing(null)
-    if (data.newlyGranted && data.patentNumber) {
-      setIssuedAlert({ id, applicationNumber: data.applicationNumber, patentNumber: data.patentNumber, title: data.title })
-    } else {
+    try {
+      const res = await fetch(`/api/patents/refresh?id=${id}`)
+      const data = await res.json()
+      if (data.newlyGranted && data.patentNumber) {
+        setIssuedAlert({ id, applicationNumber: data.applicationNumber, patentNumber: data.patentNumber, title: data.title })
+      } else {
+        load()
+      }
+    } catch {
       load()
+    } finally {
+      setRefreshing(null)
     }
   }
 

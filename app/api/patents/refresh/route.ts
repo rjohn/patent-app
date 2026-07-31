@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calculateMaintenanceFees } from '@/lib/uspto-api'
+import { calculateMaintenanceFees, odpHeaders, normalizePatentNumber, slimJson } from '@/lib/uspto-api'
 import { generateAndCacheSummary } from '@/lib/portfolio-summary'
 
 export const dynamic = 'force-dynamic'
@@ -8,70 +8,6 @@ export const dynamic = 'force-dynamic'
 // ── USPTO ODP ─────────────────────────────────────────────────────────────────
 
 const ODP_BASE = 'https://api.uspto.gov/api/v1/patent/applications'
-
-function odpHeaders(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (process.env.USPTO_API_KEY) h['X-Api-Key'] = process.env.USPTO_API_KEY
-  return h
-}
-
-function normalizePatentNumber(raw: string): string {
-  return raw.replace(/^US\s*/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '').trim()
-}
-
-// Strip heavy fields (attorney bags, correspondence bags) before storing
-function slimJson(data: any): any {
-  if (!data) return null
-  try {
-    const records = (data.patentFileWrapperDataBag || []).map((rec: any) => {
-      const meta = rec.applicationMetaData || {}
-      return {
-        applicationNumberText: rec.applicationNumberText,
-        applicationMetaData: {
-          applicationStatusCode:            meta.applicationStatusCode,
-          applicationStatusDescriptionText: meta.applicationStatusDescriptionText,
-          applicationTypeCode:              meta.applicationTypeCode,
-          applicationTypeCategory:          meta.applicationTypeCategory,
-          applicationTypeLabelName:         meta.applicationTypeLabelName,
-          filingDate:                       meta.filingDate,
-          effectiveFilingDate:              meta.effectiveFilingDate,
-          grantDate:                        meta.grantDate,
-          earliestPublicationDate:          meta.earliestPublicationDate,
-          earliestPublicationNumber:        meta.earliestPublicationNumber,
-          patentNumber:                     meta.patentNumber,
-          inventionTitle:                   meta.inventionTitle,
-          firstInventorName:                meta.firstInventorName,
-          firstApplicantName:               meta.firstApplicantName,
-          applicationConfirmationNumber:    meta.applicationConfirmationNumber,
-          customerNumber:                   meta.customerNumber,
-          docketNumber:                     meta.docketNumber,
-          entityStatusData:                 meta.entityStatusData,
-          firstInventorToFileIndicator:     meta.firstInventorToFileIndicator,
-          uspcSymbolText:                   meta.uspcSymbolText,
-          abstractText:                     meta.abstractText,
-          inventorBag: (meta.inventorBag || []).map((inv: any) => ({
-            inventorNameText: inv.inventorNameText,
-            firstName: inv.firstName, middleName: inv.middleName, lastName: inv.lastName,
-          })),
-          applicantBag: (meta.applicantBag || []).map((a: any) => ({
-            applicantNameText: a.applicantNameText,
-          })),
-          cpcClassificationBag: meta.cpcClassificationBag,
-          publicationSequenceNumberBag: meta.publicationSequenceNumberBag,
-          publicationDateBag: meta.publicationDateBag,
-        },
-        // Keep event history but strip correspondence addresses from attorneys
-        eventDataBag: rec.eventDataBag || [],
-        // Keep continuity bags
-        parentContinuityBag: rec.parentContinuityBag,
-        childContinuityBag:  rec.childContinuityBag,
-        // Keep document bag (stored separately via fetchDocuments)
-        documentBag: rec.documentBag || [],
-      }
-    })
-    return { count: data.count, patentFileWrapperDataBag: records }
-  } catch { return null }
-}
 
 async function fetchFromODP(patentNumber: string | null, appNumber: string | null): Promise<any | null> {
   const attempts: { q: string }[] = []
@@ -509,12 +445,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
           if (!parentAppNum) continue
           const conType = parent.claimParentageTypeCode || parent.claimParentageTypeCodeDescriptionText || parent.continuityTypeCategory || ''
           const parentInDb = await prisma.patent.findFirst({
-            where: {
-              OR: [
-                { applicationNumber: { contains: parentAppNum } },
-                { applicationNumber: parentAppNum },
-              ]
-            },
+            where: { applicationNumber: parentAppNum },
             select: { id: true }
           })
           if (parentInDb) {
@@ -537,12 +468,7 @@ async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
         if (!childAppNum) continue
         const conType = child.claimParentageTypeCode || child.claimParentageTypeCodeDescriptionText || child.continuityTypeCategory || ''
         const childInDb = await prisma.patent.findFirst({
-          where: {
-            AND: [
-              { OR: [{ applicationNumber: { contains: childAppNum } }, { applicationNumber: childAppNum }] },
-              { parentPatentId: null },  // don't overwrite existing links
-            ]
-          },
+          where: { applicationNumber: childAppNum, parentPatentId: null },
           select: { id: true }
         })
         if (childInDb) {
@@ -642,9 +568,11 @@ export async function POST(req: NextRequest) {
       : await prisma.patent.findMany({ select, orderBy: { updatedAt: 'asc' } })
 
     const results: RefreshResult[] = []
-    for (const p of targets) {
-      results.push(await refreshOne(p))
-      await new Promise(r => setTimeout(r, 300))
+    const BATCH = 5
+    for (let i = 0; i < targets.length; i += BATCH) {
+      const batch = targets.slice(i, i + BATCH)
+      const batchResults = await Promise.all(batch.map(p => refreshOne(p)))
+      results.push(...batchResults)
     }
 
     const updatedCount = results.filter(r => r.status === 'updated').length

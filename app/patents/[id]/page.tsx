@@ -329,9 +329,7 @@ function googlePatentsUrl(patentNumber: string | null): string | null {
 function ClaimItem({ number, text, forceExpand = false }: { number: number; text: string; forceExpand?: boolean }) {
   const [expanded, setExpanded] = useState(number <= 3)
   const isOpen = forceExpand || expanded
-  const isIndependent = !text.match(/^claim\s+\d+/i) && number === 1 ||
-    text.toLowerCase().includes('a system') || text.toLowerCase().includes('a method') ||
-    text.toLowerCase().includes('an apparatus') || text.toLowerCase().includes('a device')
+  const isIndependent = !text.match(/\bclaim\s+\d+\b/i)
 
   return (
     <div className="rounded-lg overflow-hidden mb-2" style={{
@@ -471,12 +469,11 @@ function EventHistoryTab({ patentId, jurisdiction, epNumber, publicationNumber }
     fetch(`/api/patents/${patentId}/documents`)
       .then(r => r.json())
       .then(d => {
-        console.log('[documents]', d)
         if (d.error) { setDocsError(d.error); return }
         setDocs(d.documents || [])
         setDocSource(d.source || '')
       })
-      .catch(e => { console.error('[documents error]', e); setDocsError('Failed to load documents') })
+      .catch(e => { setDocsError('Failed to load documents') })
       .finally(() => setDocsLoading(false))
   }, [patentId])
 

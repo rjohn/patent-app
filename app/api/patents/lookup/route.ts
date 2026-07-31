@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calculateMaintenanceFees } from '@/lib/uspto-api'
+import { calculateMaintenanceFees, odpHeaders, normalizePatentNumber, slimJson } from '@/lib/uspto-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,21 +16,6 @@ export const dynamic = 'force-dynamic'
  */
 
 const ODP_BASE = 'https://api.uspto.gov/api/v1/patent/applications'
-
-function odpHeaders(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (process.env.USPTO_API_KEY) h['X-Api-Key'] = process.env.USPTO_API_KEY
-  return h
-}
-
-/** Normalize a patent number to bare digits, e.g. "US 11,234,567 B2" → "11234567" */
-function normalizePatentNumber(raw: string): string {
-  return raw
-    .replace(/^US\s*/i, '')   // strip leading US
-    .replace(/[,\s]/g, '')    // strip commas & spaces
-    .replace(/[A-Z]\d*$/i, '') // strip kind code (B2, A1, etc.)
-    .trim()
-}
 
 /** Step 1: Search by patent number — returns the full response bag */
 async function searchByPatentNumber(patentNumber: string): Promise<any | null> {
@@ -92,8 +77,9 @@ function shapePatent(meta: any, continuity: any, rawAppNumber: string) {
 
   const type = mapAppType(appMeta.applicationTypeCode || '')
 
-  // Continuity: parent chain
-  const parentBag = continuity?.parentContinuityBag || []
+  // Continuity: parent chain — fetchContinuity() wraps in patentFileWrapperDataBag[0]
+  const continuityData = continuity?.patentFileWrapperDataBag?.[0] ?? continuity
+  const parentBag = continuityData?.parentContinuityBag || []
   const parent = parentBag[0] || null
 
   // Expiration = filing date + 20 years (utility)
@@ -127,7 +113,7 @@ function shapePatent(meta: any, continuity: any, rawAppNumber: string) {
     parent_app_number:     parent?.parentApplicationNumberText || null,
     parent_patent_number:  parent?.parentPatentNumber || null,
     continuation_type:     parent ? mapContinuationType(parent.continuityTypeCode || '') : null,
-    child_count:           (continuity?.childContinuityBag || []).length,
+    child_count:           (continuityData?.childContinuityBag || []).length,
     raw: meta,
   }
 }
@@ -256,7 +242,7 @@ export async function POST(req: NextRequest) {
         cpcCodes:          p.cpc_codes  || [],
         continuationType:  p.continuation_type as any || null,
         familyId:          familyId || null,
-        rawJsonData:       p.raw || null,
+        rawJsonData:       p.raw ? slimJson(p.raw) : null,
       },
     })
 

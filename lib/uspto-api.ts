@@ -152,6 +152,71 @@ function buildQuery(params: USPTOSearchParams): Record<string, any> {
   return { '_and': conditions }
 }
 
+// ── USPTO ODP shared helpers ──────────────────────────────────────────────────
+
+/** Build headers for USPTO ODP API calls */
+export function odpHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (process.env.USPTO_API_KEY) h['X-Api-Key'] = process.env.USPTO_API_KEY
+  return h
+}
+
+/** Normalize a patent number to bare digits, e.g. "US 11,234,567 B2" → "11234567" */
+export function normalizePatentNumber(raw: string): string {
+  return raw.replace(/^US\s*/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '').trim()
+}
+
+/** Strip heavy fields (attorney/correspondence bags) before storing in rawJsonData */
+export function slimJson(data: any): any {
+  if (!data) return null
+  try {
+    const records = (data.patentFileWrapperDataBag || []).map((rec: any) => {
+      const meta = rec.applicationMetaData || {}
+      return {
+        applicationNumberText: rec.applicationNumberText,
+        applicationMetaData: {
+          applicationStatusCode:            meta.applicationStatusCode,
+          applicationStatusDescriptionText: meta.applicationStatusDescriptionText,
+          applicationTypeCode:              meta.applicationTypeCode,
+          applicationTypeCategory:          meta.applicationTypeCategory,
+          applicationTypeLabelName:         meta.applicationTypeLabelName,
+          filingDate:                       meta.filingDate,
+          effectiveFilingDate:              meta.effectiveFilingDate,
+          grantDate:                        meta.grantDate,
+          earliestPublicationDate:          meta.earliestPublicationDate,
+          earliestPublicationNumber:        meta.earliestPublicationNumber,
+          patentNumber:                     meta.patentNumber,
+          inventionTitle:                   meta.inventionTitle,
+          firstInventorName:                meta.firstInventorName,
+          firstApplicantName:               meta.firstApplicantName,
+          applicationConfirmationNumber:    meta.applicationConfirmationNumber,
+          customerNumber:                   meta.customerNumber,
+          docketNumber:                     meta.docketNumber,
+          entityStatusData:                 meta.entityStatusData,
+          firstInventorToFileIndicator:     meta.firstInventorToFileIndicator,
+          uspcSymbolText:                   meta.uspcSymbolText,
+          abstractText:                     meta.abstractText,
+          inventorBag: (meta.inventorBag || []).map((inv: any) => ({
+            inventorNameText: inv.inventorNameText,
+            firstName: inv.firstName, middleName: inv.middleName, lastName: inv.lastName,
+          })),
+          applicantBag: (meta.applicantBag || []).map((a: any) => ({
+            applicantNameText: a.applicantNameText,
+          })),
+          cpcClassificationBag:            meta.cpcClassificationBag,
+          publicationSequenceNumberBag:    meta.publicationSequenceNumberBag,
+          publicationDateBag:              meta.publicationDateBag,
+        },
+        eventDataBag:        rec.eventDataBag || [],
+        parentContinuityBag: rec.parentContinuityBag,
+        childContinuityBag:  rec.childContinuityBag,
+        documentBag:         rec.documentBag || [],
+      }
+    })
+    return { count: data.count, patentFileWrapperDataBag: records }
+  } catch { return null }
+}
+
 /**
  * Calculate USPTO maintenance fee due dates for a US utility patent
  */

@@ -127,16 +127,16 @@ async function getEpToken(): Promise<string | null> {
   } catch { return null }
 }
 
-async function fetchEpRenewalPayments(epNumber: string): Promise<Date[]> {
+async function fetchEpRenewalPayments(epNumber: string): Promise<Date[] | null> {
   const token = await getEpToken()
-  if (!token) return []
+  if (!token) return null
   const docId = /^EP/i.test(epNumber) ? epNumber : `EP${epNumber}`
   try {
     const res = await fetch(`https://ops.epo.org/3.2/rest-services/register/publication/epodoc/${docId}/events`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/xml' },
       signal: AbortSignal.timeout(12000),
     })
-    if (!res.ok) return []
+    if (!res.ok) return null
     const xml = await res.text()
     const dates: Date[] = []
     const re = /<(?:[^:>]+:)?dossier-event[\s\S]*?<\/(?:[^:>]+:)?dossier-event>/gi
@@ -151,7 +151,7 @@ async function fetchEpRenewalPayments(epNumber: string): Promise<Date[]> {
       }
     }
     return dates
-  } catch { return [] }
+  } catch { return null }
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -176,6 +176,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         || patent.patentNumber?.replace(/^EP/i, '')
         || null
       const paymentDates = epNum ? await fetchEpRenewalPayments(epNum) : []
+      if (paymentDates === null) {
+        return NextResponse.json({ error: 'Could not fetch EPO payment data — fee history not modified' }, { status: 503 })
+      }
 
       // Map payment dates → renewal year
       const paidYears = new Set<number>()

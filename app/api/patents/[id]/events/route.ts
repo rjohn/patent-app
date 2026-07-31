@@ -160,7 +160,7 @@ function categorizeRegisterEvent(code: string, text: string): EventCategory {
   if (c.startsWith('0009199EXPT')) return 'filing'          // extension states
   if (c.startsWith('0009299')) return 'assignment'          // change of owner/inventor
   if (c.startsWith('0008199')) return 'other'               // classification change
-  if (c === 'EPIDOSPCT' || c === 'EPIDOSPCT') return 'filing'
+  if (c === 'EPIDOSPCT') return 'filing'
   if (c === 'EPIDOSABEX') return 'response'
   if (c === 'EPIDOSNADW2') return 'status'
   if (c === 'EPIDOSNIGR1') return 'allowance'  // intention to grant
