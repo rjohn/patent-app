@@ -5,6 +5,7 @@ node_modules/
 .env
 .env.local
 .env*.local
+tmp.emv.local
 
 # Next.js build output
 .next/
