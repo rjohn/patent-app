@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, SlidersHorizontal, ChevronDown, FileText, ExternalLink, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
+import { Search, SlidersHorizontal, ChevronDown, FileText, ExternalLink, Loader2, AlertCircle, Trash2, X, Building2 } from 'lucide-react'
 
 interface Patent {
   id: string
@@ -114,6 +114,7 @@ export default function PatentsPage() {
   const [statusFilter, setStatus]         = useState('ALL')
   const [typeFilter, setType]             = useState('ALL')
   const [jurisdictionFilter, setJurisdiction] = useState('ALL')
+  const [assigneeFilter, setAssigneeFilter] = useState('')
   const [showFilters, setShowFilters]     = useState(false)
   const [sortBy, setSortBy]               = useState('filingDate')
   const [sortDir, setSortDir]             = useState<'asc' | 'desc'>('desc')
@@ -138,6 +139,7 @@ export default function PatentsPage() {
         ...(statusFilter !== 'ALL'      && { status:       statusFilter }),
         ...(typeFilter !== 'ALL'        && { type:         typeFilter }),
         ...(jurisdictionFilter !== 'ALL' && { jurisdiction: jurisdictionFilter }),
+        ...(assigneeFilter              && { assignee:     assigneeFilter }),
       })
       const res = await fetch(`/api/patents?${params}`)
       if (!res.ok) throw new Error(`API error ${res.status}`)
@@ -149,7 +151,7 @@ export default function PatentsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, debouncedSearch, statusFilter, typeFilter, jurisdictionFilter, sortBy, sortDir])
+  }, [page, debouncedSearch, statusFilter, typeFilter, jurisdictionFilter, assigneeFilter, sortBy, sortDir])
 
   useEffect(() => { fetchPatents() }, [fetchPatents])
 
@@ -174,10 +176,10 @@ export default function PatentsPage() {
     setPage(1)
   }
 
-  const clearFilters = () => { setSearch(''); setStatus('ALL'); setType('ALL'); setJurisdiction('ALL') }
+  const clearFilters = () => { setSearch(''); setStatus('ALL'); setType('ALL'); setJurisdiction('ALL'); setAssigneeFilter('') }
 
   const totalPages  = Math.ceil(total / PAGE_SIZE)
-  const activeFilters = statusFilter !== 'ALL' || typeFilter !== 'ALL' || jurisdictionFilter !== 'ALL'
+  const activeFilters = statusFilter !== 'ALL' || typeFilter !== 'ALL' || jurisdictionFilter !== 'ALL' || !!assigneeFilter
   const hasFilters  = activeFilters || !!debouncedSearch
 
   return (
@@ -275,6 +277,27 @@ export default function PatentsPage() {
                     </button>
                   )
                 })}
+              </div>
+            </div>
+
+            {/* Assignee */}
+            <div className="col-span-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <label className="label mb-1.5 block">Assignee</label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-patent-muted pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Filter by company or assignee name…"
+                  value={assigneeFilter}
+                  onChange={e => { setAssigneeFilter(e.target.value); setPage(1) }}
+                  className="input w-full pl-8 pr-8 text-sm"
+                />
+                {assigneeFilter && (
+                  <button onClick={() => { setAssigneeFilter(''); setPage(1) }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-patent-muted hover:text-white transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
 

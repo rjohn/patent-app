@@ -46,6 +46,8 @@ export async function GET(req: NextRequest) {
     if (source)       where.source       = source
     const jurisdiction = searchParams.get('jurisdiction') || ''
     if (jurisdiction) where.jurisdiction = jurisdiction
+    const assignee = searchParams.get('assignee') || ''
+    if (assignee) where.assignee = { contains: assignee, mode: 'insensitive' }
 
     const [patents, total] = await Promise.all([
       prisma.patent.findMany({

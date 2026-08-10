@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, use, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import FamilyTree, { PatentNode } from '@/components/FamilyTree'
 import { useTheme } from '@/context/theme-context'
 import {
@@ -1121,6 +1121,10 @@ export default function PatentDetailPage({ params }: { params: any }) {
   const resolvedParams = params instanceof Promise ? use(params) : params
   const id = resolvedParams.id as string
   const router  = useRouter()
+  const pathname = usePathname()
+  const fromApplications = pathname.startsWith('/applications/')
+  const backHref  = fromApplications ? '/applications' : '/patents'
+  const backLabel = fromApplications ? 'Tracked Applications' : 'Patents'
   const { theme } = useTheme()
   const light = theme === 'light'
   const [patent, setPatent]     = useState<Patent | null>(null)
@@ -1159,8 +1163,8 @@ export default function PatentDetailPage({ params }: { params: any }) {
 
   if (error || !patent) return (
     <div className="p-8">
-      <Link href="/patents" className="flex items-center gap-1.5 text-sm text-patent-muted hover:text-white mb-6">
-        <ArrowLeft className="w-4 h-4" /> Back to Patents
+      <Link href={backHref} className="flex items-center gap-1.5 text-sm text-patent-muted hover:text-white mb-6">
+        <ArrowLeft className="w-4 h-4" /> Back to {backLabel}
       </Link>
       <div className="card p-6 text-center" style={{ borderColor: 'rgba(239,68,68,0.3)' }}>
         <AlertCircle className="w-8 h-8 mx-auto mb-3" style={{ color: '#f87171' }} />
@@ -1277,8 +1281,8 @@ export default function PatentDetailPage({ params }: { params: any }) {
       )}
 
       <div className="mb-6">
-        <Link href="/patents" className="flex items-center gap-1.5 text-sm text-patent-muted hover:text-white transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Back to Patents
+        <Link href={backHref} className="flex items-center gap-1.5 text-sm text-patent-muted hover:text-white transition-colors">
+          <ArrowLeft className="w-4 h-4" /> Back to {backLabel}
         </Link>
       </div>
 

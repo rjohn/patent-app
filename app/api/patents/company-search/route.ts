@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { odpHeaders } from '@/lib/uspto-api'
 
 export const dynamic = 'force-dynamic'
 
 const ODP_BASE = 'https://api.uspto.gov/api/v1/patent/applications'
-
-function odpHeaders(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (process.env.USPTO_API_KEY) h['X-Api-Key'] = process.env.USPTO_API_KEY
-  return h
-}
 
 function mapStatus(s: string): string {
   const l = (s || '').toLowerCase()

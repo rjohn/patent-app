@@ -181,13 +181,13 @@ export default function ApplicationsPage() {
               {apps.map(app => (
                 <tr key={app.id} className="group">
                   <td>
-                    <Link href={`/patents/${app.id}`} className="font-mono text-xs hover:text-patent-sky transition-colors"
+                    <Link href={`/applications/${app.id}`} className="font-mono text-xs hover:text-patent-sky transition-colors"
                       style={{ color: 'var(--patent-sky)' }}>
                       {app.patentNumber || app.applicationNumber || '—'}
                     </Link>
                   </td>
                   <td className="max-w-xs">
-                    <Link href={`/patents/${app.id}`} className="text-sm text-white hover:text-patent-sky transition-colors line-clamp-2">
+                    <Link href={`/applications/${app.id}`} className="text-sm text-white hover:text-patent-sky transition-colors line-clamp-2">
                       {app.title}
                     </Link>
                     {app.family && (
@@ -225,7 +225,7 @@ export default function ApplicationsPage() {
                         className="btn-ghost p-1.5" title="Refresh from USPTO">
                         <RefreshCw className={`w-3.5 h-3.5 ${refreshing === app.id ? 'animate-spin' : ''}`} />
                       </button>
-                      <Link href={`/patents/${app.id}`} className="btn-ghost p-1.5">
+                      <Link href={`/applications/${app.id}`} className="btn-ghost p-1.5">
                         <ExternalLink className="w-3.5 h-3.5" />
                       </Link>
                     </div>
