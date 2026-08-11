@@ -317,6 +317,97 @@ function ChangePasswordSection() {
   )
 }
 
+type DigestFrequency = 'WEEKLY' | 'MONTHLY'
+
+function ActivityDigestSection() {
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
+  const [saved, setSaved]       = useState(false)
+  const [enabled, setEnabled]   = useState(false)
+  const [frequency, setFrequency] = useState<DigestFrequency>('WEEKLY')
+  const [onlyIfActivity, setOnlyIfActivity] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/settings/activity-subscription')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        setEnabled(d.enabled)
+        setFrequency(d.frequency)
+        setOnlyIfActivity(d.onlyIfActivity)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await fetch('/api/settings/activity-subscription', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, frequency, onlyIfActivity }),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card p-6">
+      <h2 className="section-title flex items-center gap-2 mb-4">
+        <Mail className="w-4 h-4 text-patent-sky" /> Portfolio Activity Digest
+      </h2>
+      <p className="text-sm text-patent-muted mb-4">
+        Get a summary email of prosecution events, fee due dates, and portfolio changes on a recurring schedule.
+      </p>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-patent-muted py-2">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <div onClick={() => setEnabled(v => !v)}
+              className={`w-10 h-5 rounded-full transition-colors relative ${enabled ? 'bg-patent-sky' : 'bg-white/20'}`}>
+              <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
+            <span className="text-sm text-white">Email me a portfolio activity digest</span>
+          </label>
+
+          <div className={enabled ? '' : 'opacity-50 pointer-events-none'}>
+            <div className="max-w-xs">
+              <label className="label mb-1.5 block">Frequency</label>
+              <select value={frequency} onChange={e => setFrequency(e.target.value as DigestFrequency)} className="input w-full">
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+            </div>
+
+            <label className="flex items-center gap-3 cursor-pointer mt-4">
+              <div onClick={() => setOnlyIfActivity(v => !v)}
+                className={`w-10 h-5 rounded-full transition-colors relative ${onlyIfActivity ? 'bg-patent-sky' : 'bg-white/20'}`}>
+                <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${onlyIfActivity ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </div>
+              <span className="text-sm text-white">Only send if there's activity that period</span>
+            </label>
+          </div>
+
+          <div>
+            <button onClick={save} disabled={saving} className="btn-primary text-sm flex items-center gap-2">
+              {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+               : saved ? <><CheckCircle2 className="w-4 h-4" /> Saved!</>
+               :         <><Save className="w-4 h-4" /> Save</>}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type EnvVar = { set: boolean; value: string }
 type EnvInfo = Record<string, EnvVar>
 
@@ -328,6 +419,9 @@ const ENV_LABELS: Record<string, string> = {
   EPO_OPS_KEY:                   'EPO OPS Key',
   EPO_OPS_SECRET:                'EPO OPS Secret',
   NEXT_PUBLIC_APP_URL:           'App URL',
+  RESEND_API_KEY:                'Resend API Key',
+  EMAIL_FROM:                    'Digest From Address',
+  CRON_SECRET:                   'Cron Secret',
 }
 
 function EnvInfoPanel() {
@@ -617,6 +711,9 @@ export default function SettingsPage() {
             </label>
           </div>
         </div>
+
+        {/* Portfolio Activity Digest */}
+        <ActivityDigestSection />
 
         {/* Team Members */}
         <div className="card p-6">

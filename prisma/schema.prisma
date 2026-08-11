@@ -28,8 +28,28 @@ model User {
   uploads   DataUpload[]
   sentNotifications      Notification[]           @relation("NotificationSender")
   notificationRecipients NotificationRecipient[]
+  activitySubscription   ActivitySubscription?
 
   @@map("users")
+}
+
+model ActivitySubscription {
+  id             String           @id @default(cuid())
+  userId         String           @unique
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled        Boolean          @default(false)
+  frequency      DigestFrequency  @default(WEEKLY)
+  onlyIfActivity Boolean          @default(true)
+  lastSentAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@map("activity_subscriptions")
+}
+
+enum DigestFrequency {
+  WEEKLY
+  MONTHLY
 }
 
 model Invite {

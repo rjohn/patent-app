@@ -13,5 +13,8 @@ export async function GET() {
     EPO_OPS_KEY:                   entry(process.env.EPO_OPS_KEY),
     EPO_OPS_SECRET:                entry(process.env.EPO_OPS_SECRET),
     NEXT_PUBLIC_APP_URL:           entry(process.env.NEXT_PUBLIC_APP_URL),
+    RESEND_API_KEY:                entry(process.env.RESEND_API_KEY),
+    EMAIL_FROM:                    entry(process.env.EMAIL_FROM),
+    CRON_SECRET:                   entry(process.env.CRON_SECRET),
   })
 }

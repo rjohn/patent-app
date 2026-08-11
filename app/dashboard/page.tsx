@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   FileText, GitBranch, CalendarClock, AlertTriangle,
-  TrendingUp, Clock, CheckCircle2, Loader2, RefreshCw, Sparkles, Search
+  TrendingUp, Clock, CheckCircle2, Loader2, RefreshCw, Sparkles, Search, ChevronDown
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -41,6 +41,11 @@ interface DashboardData {
     filingDate: string | null
     family: { id: string; name: string } | null
   }[]
+  growthByYear: {
+    ALL: { year: number; total: number }[]
+    US:  { year: number; total: number }[]
+    EP:  { year: number; total: number }[]
+  }
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -61,6 +66,218 @@ function DeadlineUrgency({ days }: { days: number }) {
 
 function feeLabel(feeType: string) {
   return feeType.replace('MAINTENANCE_', '').replace('_', '.') + 'yr Maintenance'
+}
+
+type JurisdictionFilter = 'ALL' | 'US' | 'EP'
+
+const JURISDICTION_LABELS: Record<JurisdictionFilter, string> = {
+  ALL: 'All', US: 'US', EP: 'Euro',
+}
+
+function PortfolioGrowthChart({ growthByYear }: { growthByYear: DashboardData['growthByYear'] }) {
+  const { theme } = useTheme()
+  const light = theme === 'light'
+  const divider = light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)'
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [hover, setHover] = useState<number | null>(null)
+  const [jurisdiction, setJurisdiction] = useState<JurisdictionFilter>('ALL')
+
+  const data = growthByYear[jurisdiction]
+
+  const W = 600, H = 200
+  const pad = { top: 16, right: 12, bottom: 24, left: 34 }
+  const innerW = W - pad.left - pad.right
+  const innerH = H - pad.top - pad.bottom
+
+  const header = (
+    <div className="flex items-center justify-between mb-3">
+      <h3 className="section-title">Total Patents Granted</h3>
+      <div className="relative">
+        <select value={jurisdiction} onChange={e => { setJurisdiction(e.target.value as JurisdictionFilter); setHover(null) }}
+          className="input text-xs py-1 pl-2 pr-6 appearance-none cursor-pointer">
+          {(['ALL', 'US', 'EP'] as JurisdictionFilter[]).map(j => (
+            <option key={j} value={j}>{JURISDICTION_LABELS[j]}</option>
+          ))}
+        </select>
+        <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-patent-muted" />
+      </div>
+    </div>
+  )
+
+  if (data.length === 0) {
+    return (
+      <>
+        {header}
+        <div className="flex items-center justify-center h-40 text-sm text-patent-muted">
+          No {jurisdiction === 'ALL' ? '' : `${JURISDICTION_LABELS[jurisdiction]} `}granted patents yet
+        </div>
+      </>
+    )
+  }
+
+  const maxTotal = Math.max(1, ...data.map(d => d.total))
+  const yMax = Math.ceil(maxTotal * 1.15)
+  const xAt = (i: number) => data.length > 1 ? pad.left + (i / (data.length - 1)) * innerW : pad.left + innerW / 2
+  const yAt = (v: number) => pad.top + innerH - (v / yMax) * innerH
+
+  const linePoints = data.map((d, i) => `${xAt(i)},${yAt(d.total)}`).join(' ')
+  const areaPoints = `${xAt(0)},${yAt(0)} ${linePoints} ${xAt(data.length - 1)},${yAt(0)}`
+
+  // Show at most ~6 year labels to avoid crowding
+  const labelEvery = Math.max(1, Math.ceil(data.length / 6))
+
+  const handleMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const fracX = (e.clientX - rect.left) / rect.width
+    const svgX = fracX * W
+    let nearest = 0
+    let best = Infinity
+    data.forEach((_, i) => {
+      const d = Math.abs(xAt(i) - svgX)
+      if (d < best) { best = d; nearest = i }
+    })
+    setHover(nearest)
+  }
+
+  const current = data[data.length - 1]
+  const hovered = hover !== null ? data[hover] : null
+
+  return (
+    <div>
+      {header}
+      <div className="flex items-baseline gap-2 mb-1 px-1">
+        <span className="text-2xl font-display font-bold" style={{ color: light ? '#0F172A' : 'white' }}>
+          {(hovered ?? current).total}
+        </span>
+        <span className="text-xs text-patent-muted">granted as of {(hovered ?? current).year}</span>
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full h-auto"
+        style={{ display: 'block' }}
+        role="img"
+        aria-label={`Cumulative granted patents by year, reaching ${current.total} in ${current.year}`}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        {/* Gridlines */}
+        {[0, 0.5, 1].map(f => (
+          <line key={f} x1={pad.left} x2={W - pad.right} y1={pad.top + innerH * (1 - f)} y2={pad.top + innerH * (1 - f)}
+            stroke={divider} strokeWidth={1} />
+        ))}
+        <text x={pad.left - 6} y={pad.top + 4} textAnchor="end" fontSize="10" fill="var(--patent-muted)">{yMax}</text>
+        <text x={pad.left - 6} y={pad.top + innerH + 4} textAnchor="end" fontSize="10" fill="var(--patent-muted)">0</text>
+
+        {/* Area + line */}
+        <polygon points={areaPoints} fill="var(--patent-sky)" opacity={0.12} />
+        <polyline points={linePoints} fill="none" stroke="var(--patent-sky)" strokeWidth={2}
+          strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Year labels */}
+        {data.map((d, i) => (i % labelEvery === 0 || i === data.length - 1) ? (
+          <text key={d.year} x={xAt(i)} y={H - 6} textAnchor="middle" fontSize="10" fill="var(--patent-muted)">
+            {d.year}
+          </text>
+        ) : null)}
+
+        {/* Current-value marker */}
+        <circle cx={xAt(data.length - 1)} cy={yAt(current.total)} r={4} fill="var(--patent-sky)" />
+
+        {/* Hover crosshair */}
+        {hovered && (
+          <>
+            <line x1={xAt(hover!)} x2={xAt(hover!)} y1={pad.top} y2={pad.top + innerH} stroke={divider} strokeWidth={1} />
+            <circle cx={xAt(hover!)} cy={yAt(hovered.total)} r={4} fill="var(--patent-sky)" stroke={light ? 'white' : '#0A1628'} strokeWidth={2} />
+          </>
+        )}
+      </svg>
+    </div>
+  )
+}
+
+interface ActivityItem { date: string; label: string; detail: string; kind: 'event' | 'fee' | 'change' }
+interface ActivitySummaryLite {
+  events: { eventDate: string; title: string; description: string }[]
+  fees: { dueDate: string; title: string; feeType: string; status: string }[]
+  changes: { date: string; title: string; detail: string }[]
+}
+
+function ActivityWidget() {
+  const { theme } = useTheme()
+  const light = theme === 'light'
+  const divider = light ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)'
+  const [period, setPeriod] = useState<'week' | 'month'>('week')
+  const [data, setData]     = useState<ActivitySummaryLite | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    const qs = period === 'week' ? '?period=week' : ''
+    fetch(`/api/activity${qs}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(setData)
+      .finally(() => setLoading(false))
+  }, [period])
+
+  const items: ActivityItem[] = data ? [
+    ...data.events.map(e => ({ date: e.eventDate, label: e.title, detail: e.description, kind: 'event' as const })),
+    ...data.fees.map(f => ({ date: f.dueDate, label: f.title, detail: `${f.feeType.replace(/_/g, ' ')} · ${f.status}`, kind: 'fee' as const })),
+    ...data.changes.map(c => ({ date: c.date, label: c.title, detail: c.detail, kind: 'change' as const })),
+  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5) : []
+
+  const kindColor: Record<ActivityItem['kind'], string> = {
+    event: 'var(--patent-sky)', fee: '#e6b84a', change: '#4ade80',
+  }
+
+  return (
+    <div className="card h-full flex flex-col">
+      <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: divider }}>
+        <h2 className="section-title">Activity</h2>
+        <div className="relative">
+          <select value={period} onChange={e => setPeriod(e.target.value as 'week' | 'month')}
+            className="input text-xs py-1 pl-2 pr-6 appearance-none cursor-pointer">
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
+          <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-patent-muted" />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-10 flex-1">
+          <Loader2 className="w-5 h-5 animate-spin text-patent-muted" />
+        </div>
+      ) : !data || items.length === 0 ? (
+        <div className="px-6 py-10 text-center text-patent-muted text-sm flex-1">No activity this {period}</div>
+      ) : (
+        <>
+          <div className="px-6 py-3 flex items-center gap-4 text-xs text-patent-muted" style={{ borderBottom: divider }}>
+            <span>{data.events.length} events</span>
+            <span>{data.fees.length} fees</span>
+            <span>{data.changes.length} changes</span>
+          </div>
+          <div className="flex-1">
+            {items.map((it, i) => (
+              <div key={i} className="px-6 py-3 flex items-center gap-3" style={{ borderBottom: divider }}>
+                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: kindColor[it.kind] }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate" style={{ color: light ? '#334155' : 'rgba(255,255,255,0.85)' }}>{it.label}</p>
+                  <p className="text-xs text-patent-muted truncate">{it.detail}</p>
+                </div>
+                <div className="text-xs text-patent-muted whitespace-nowrap">{it.date.slice(5)}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="px-6 py-3 mt-auto" style={{ borderTop: divider }}>
+        <Link href="/activity" className="btn-ghost text-xs">View full activity →</Link>
+      </div>
+    </div>
+  )
 }
 
 function useGreeting(name: string) {
@@ -114,7 +331,7 @@ export default function DashboardPage() {
   const light = theme === 'light'
   const divider = light ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)'
 
-  const { stats, recentDeadlines, recentPatents } = data
+  const { stats, recentDeadlines, recentPatents, growthByYear } = data
 
   return (
     <div className="p-8 space-y-8 animate-fade-in">
@@ -157,6 +374,14 @@ export default function DashboardPage() {
 
       {/* AI Portfolio Summary */}
       <PortfolioSummary />
+
+      {/* Growth chart + Activity widget */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card p-5">
+          <PortfolioGrowthChart growthByYear={growthByYear} />
+        </div>
+        <ActivityWidget />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Upcoming Deadlines */}

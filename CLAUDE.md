@@ -82,6 +82,9 @@ USPTO_API_KEY=              # USPTO Open Data Portal API key (optional but recom
 EPO_OPS_KEY=                # EPO Open Patent Services consumer key
 EPO_OPS_SECRET=             # EPO OPS consumer secret
 NEXT_PUBLIC_APP_URL=        # e.g. https://your-app.vercel.app (for invite links)
+CRON_SECRET=                # Shared secret for /api/cron/* routes; Vercel Cron sends it as `Authorization: Bearer $CRON_SECRET`
+RESEND_API_KEY=             # Resend API key, used by lib/email.ts for activity digest emails
+EMAIL_FROM=                 # Verified sender, e.g. "Plaz4 IP <digest@mail.yourdomain.com>"
 ```
 
 ---
@@ -144,6 +147,10 @@ app/
     team/invite/[id]/         # DELETE: revoke invite
     team/invite/accept/       # GET: validate token; POST: accept + create user
     team/members/[id]/        # PATCH: update role; DELETE: remove member
+    activity/                 # GET: portfolio activity summary (?period=, ?format=html for digest)
+    settings/activity-subscription/  # GET, PATCH: current user's digest subscription
+    cron/refresh-patents/     # GET (CRON_SECRET-guarded): daily bulk USPTO/EPO refresh
+    cron/activity-digest/     # GET (CRON_SECRET-guarded): sends due weekly/monthly digest emails
 
 components/
   Sidebar.tsx         # Navigation sidebar with "Plaz4 IP" branding, p4-icon.png
@@ -153,6 +160,9 @@ lib/
   prisma.ts           # Prisma client singleton
   uspto-api.ts        # calculateMaintenanceFees() and USPTO helpers
   pdf-builder.ts      # Pure-TypeScript PDF generation (no npm packages)
+  patent-refresh.ts   # USPTO/EPO refresh logic; refreshAllPatents() used by /manage and the daily cron
+  activity.ts         # buildActivitySummary()/buildEmailHtml() — shared by /api/activity and the digest cron
+  email.ts            # sendEmail() — thin Resend wrapper
 
 public/
   p4-icon.png         # App icon (white background)
@@ -322,6 +332,7 @@ const proxyUrl = `/api/patents/${patentId}/documents/${doc.documentIdentifier}/d
 - `Patent.source` — `PatentSource` enum: `PORTFOLIO` (manually added), `CONTINUATION` (tracked from continuity tab)
 - `Patent.rawJsonData` — `Json?` field storing slimmed USPTO response + documentBag (see above)
 - `Invite` model requires `npm run db:push` if not yet applied — has `token`, `status (InviteStatus)`, `expiresAt`
+- `ActivitySubscription` — one per `User` (`@@unique userId`), drives the portfolio activity digest email. `frequency (DigestFrequency: WEEKLY|MONTHLY)`, `onlyIfActivity` (skip sending if nothing happened that period), `lastSentAt` (advances every due period regardless of whether an email was actually sent)
 
 ---
 
@@ -361,6 +372,17 @@ const proxyUrl = `/api/patents/${patentId}/documents/${doc.documentIdentifier}/d
 
 Uses a custom pure-TypeScript `PDFBuilder` class in `lib/pdf-builder.ts`. No npm PDF packages, no subprocesses. Raw PDF 1.4 syntax.  
 The `@react-pdf/renderer` package is also installed but PDFBuilder is the primary approach.
+
+---
+
+## Scheduled Jobs (Vercel Cron)
+
+`vercel.json` defines two daily cron jobs, both guarded by `CRON_SECRET` (checked against the `Authorization: Bearer` header Vercel sends automatically for its own cron invocations when that env var is set):
+
+- **`GET /api/cron/refresh-patents`** — `10:00 UTC` (~6am Eastern, drifts ±1hr with DST since Vercel Cron schedules are fixed-UTC). Calls `refreshAllPatents()` from `lib/patent-refresh.ts` — the same bulk-refresh logic the `/manage` page's button triggers via `POST /api/patents/refresh`.
+- **`GET /api/cron/activity-digest`** — `10:30 UTC`, 30 min after the refresh so digests reflect same-morning data. Walks every enabled `ActivitySubscription`, and for each one whose weekly/monthly window has elapsed, builds a summary via `buildActivitySummary()` (`lib/activity.ts` — shared with `/api/activity` and the in-app Activity page) and emails it through `lib/email.ts` (Resend) if there was activity or `onlyIfActivity` is off. `lastSentAt` always advances on a due check, whether or not an email was actually sent, so cadence stays fixed to the chosen frequency.
+
+Users manage their own subscription from **Settings → Portfolio Activity Digest** (`GET`/`PATCH /api/settings/activity-subscription`).
 
 ---
 

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { DM_Sans, DM_Mono } from 'next/font/google'
 import localFont from 'next/font/local'
 import { AuthProvider } from '@/context/auth-context'
@@ -30,6 +30,23 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: 'Plaz4 IP',
   description: 'Manage your patent portfolio, families, and deadlines',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/p4-icon.png',
+    shortcut: '/p4-icon.png',
+    apple: '/icons/apple-touch-icon.png',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Plaz4 IP',
+  },
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#1A5BC5',
 }
 
 export default function RootLayout({

@@ -2,7 +2,9 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextRequest, NextResponse } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/invite', '/reset-password']
-const PUBLIC_API   = ['/api/auth', '/api/team/invite/accept']
+// /api/cron/* has no session cookie (Vercel Cron sends a CRON_SECRET bearer token instead) —
+// exempt from the session gate here, but each route still checks that token itself.
+const PUBLIC_API   = ['/api/auth', '/api/team/invite/accept', '/api/cron']
 
 export async function middleware(req: NextRequest) {
   const res      = NextResponse.next()
@@ -36,5 +38,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|p4-icon.png|fonts/).*)',],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|p4-icon.png|fonts/|manifest.json|icons/).*)',],
 }

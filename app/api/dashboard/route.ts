@@ -18,7 +18,7 @@ export async function GET() {
       totalPatents, granted, pending, abandoned, families,
       upcomingDeadlines, overdueDeadlines, expiringYear,
       grantedUS, grantedEP, openApplications,
-      recentDeadlinesRaw, recentPatents,
+      recentDeadlinesRaw, recentPatents, grantedPatents,
     ] = await Promise.all([
       prisma.patent.count(),
       prisma.patent.count({ where: { status: 'GRANTED' } }),
@@ -48,7 +48,40 @@ export async function GET() {
           family: { select: { id: true, name: true } },
         },
       }),
+      prisma.patent.findMany({
+        where: { grantDate: { not: null } },
+        select: { grantDate: true, jurisdiction: true },
+      }),
     ])
+
+    // Cumulative granted-patent count by grant year, with gap years filled in —
+    // one series per jurisdiction filter so the dashboard dropdown can switch instantly
+    const buildSeries = (filterJurisdiction: 'US' | 'EP' | null): { year: number; total: number }[] => {
+      const countsByYear = new Map<number, number>()
+      for (const p of grantedPatents) {
+        if (filterJurisdiction && p.jurisdiction !== filterJurisdiction) continue
+        const year = p.grantDate!.getFullYear()
+        countsByYear.set(year, (countsByYear.get(year) || 0) + 1)
+      }
+      if (countsByYear.size === 0) return []
+      const years = Array.from(countsByYear.keys())
+      const minYear = Math.min(...years)
+      const maxYear = Math.max(new Date().getFullYear(), ...years)
+      const series: { year: number; total: number }[] = []
+      let running = 0
+      for (let y = minYear; y <= maxYear; y++) {
+        running += countsByYear.get(y) || 0
+        series.push({ year: y, total: running })
+      }
+      return series
+    }
+
+
+    const growthByYear = {
+      ALL: buildSeries(null),
+      US:  buildSeries('US'),
+      EP:  buildSeries('EP'),
+    }
 
     const today = new Date()
     const recentDeadlines = recentDeadlinesRaw.map(f => ({
@@ -67,6 +100,7 @@ export async function GET() {
       stats: { totalPatents, granted, pending, abandoned, families, upcomingDeadlines, overdueDeadlines, expiringYear, grantedUS, grantedEP, openApplications },
       recentDeadlines,
       recentPatents,
+      growthByYear,
     })
   } catch (e) {
     console.error(e)

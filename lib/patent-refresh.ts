@@ -1,0 +1,586 @@
+import { prisma } from '@/lib/prisma'
+import { calculateMaintenanceFees, odpHeaders, normalizePatentNumber, slimJson } from '@/lib/uspto-api'
+import { generateAndCacheSummary } from '@/lib/portfolio-summary'
+
+// ── USPTO ODP ─────────────────────────────────────────────────────────────────
+
+const ODP_BASE = 'https://api.uspto.gov/api/v1/patent/applications'
+
+async function fetchFromODP(patentNumber: string | null, appNumber: string | null): Promise<any | null> {
+  const attempts: { q: string }[] = []
+  if (patentNumber) attempts.push({ q: `applicationMetaData.patentNumber:${normalizePatentNumber(patentNumber)}` })
+  if (appNumber)    attempts.push({ q: `applicationNumberText:${appNumber.replace(/[\/,\s]/g, '')}` })
+  for (const attempt of attempts) {
+    const url = new URL(`${ODP_BASE}/search`)
+    url.searchParams.set('q', attempt.q)
+    url.searchParams.set('limit', '1')
+    try {
+      const res = await fetch(url.toString(), { headers: odpHeaders(), signal: AbortSignal.timeout(15000) })
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data?.patentFileWrapperDataBag?.length > 0) return data
+    } catch { continue }
+  }
+  return null
+}
+
+async function fetchContinuity(appNumber: string): Promise<any> {
+  try {
+    const res = await fetch(`${ODP_BASE}/${appNumber}/continuity`, {
+      headers: odpHeaders(), signal: AbortSignal.timeout(10000),
+    })
+    return res.ok ? res.json() : null
+  } catch { return null }
+}
+
+async function fetchDocuments(appNumber: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${ODP_BASE}/${appNumber}/documents`, {
+      headers: odpHeaders(), signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    // Real response shape: { count, documentBag: [...] }  (top-level, not nested)
+    const bag = data?.documentBag
+    if (!Array.isArray(bag)) return []
+    return bag
+      .map((d: any) => {
+        // Pick the PDF download option first, then any other
+        const pdfOption = d.downloadOptionBag?.find((o: any) => o.mimeTypeIdentifier === 'PDF')
+        const anyOption = d.downloadOptionBag?.[0]
+        const chosen    = pdfOption || anyOption
+        return {
+          documentIdentifier:          d.documentIdentifier          || null,
+          documentCode:                d.documentCode                || '',
+          documentCodeDescriptionText: d.documentCodeDescriptionText || '',
+          officialDate:                d.officialDate                || null,
+          directionCategory:           d.directionCategory           || '',
+          pageCount:                   chosen?.pageTotalQuantity     || null,
+          downloadUrl:                 chosen?.downloadUrl           || null,
+          mimeType:                    chosen?.mimeTypeIdentifier    || null,
+        }
+      })
+      .filter((d: any) => d.officialDate)
+      .sort((a: any, b: any) => b.officialDate.localeCompare(a.officialDate))
+  } catch { return [] }
+}
+
+function mapStatus(s: string): string {
+  const l = s.toLowerCase()
+  if (l.includes('patented') || l.includes('grant') || l.includes('issued')) return 'GRANTED'
+  if (l.includes('abandon')) return 'ABANDONED'
+  if (l.includes('expired')) return 'EXPIRED'
+  if (l.includes('publish')) return 'PUBLISHED'
+  return 'PENDING'
+}
+
+function mapType(code: string): string {
+  const c = code.toUpperCase()
+  if (c === 'DES' || c.includes('DESIGN'))  return 'DESIGN'
+  if (c === 'PLT' || c.includes('PLANT'))   return 'PLANT'
+  if (c === 'PRV' || c.includes('PROV'))    return 'PROVISIONAL'
+  if (c === 'PCT')                          return 'PCT'
+  return 'UTILITY'
+}
+
+// ── EPO OPS ───────────────────────────────────────────────────────────────────
+
+let _epoTokenCache: { token: string; expires: number } | null = null
+
+async function getEpoToken(): Promise<string | null> {
+  if (_epoTokenCache && Date.now() < _epoTokenCache.expires - 30000) return _epoTokenCache.token
+  const key = process.env.EPO_OPS_KEY
+  const secret = process.env.EPO_OPS_SECRET
+  if (!key || !secret) return null
+  try {
+    const res = await fetch('https://ops.epo.org/3.2/auth/accesstoken', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    _epoTokenCache = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 }
+    return _epoTokenCache.token
+  } catch { return null }
+}
+
+function extractXmlText(xml: string, tag: string): string | null {
+  const m = xml.match(new RegExp(`<${tag}[^>]*lang="en"[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+           || xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+  if (!m) return null
+  return m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null
+}
+
+async function fetchEpoBiblio(epNumber: string): Promise<any | null> {
+  const token = await getEpoToken()
+  if (!token) return null
+  try {
+    const bare = epNumber.replace(/^EP/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '')
+    const res = await fetch(
+      `https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/EP${bare}/biblio`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/xml' }, signal: AbortSignal.timeout(12000) }
+    )
+    return res.ok ? await res.text() : null
+  } catch { return null }
+}
+
+async function fetchEpoAbstractAndClaims(epNumber: string): Promise<{ abstract: string | null; claimsJson: any[] | null }> {
+  const token = await getEpoToken()
+  if (!token) return { abstract: null, claimsJson: null }
+  try {
+    const bare = epNumber.replace(/^EP/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '')
+    const base = `https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/EP${bare}`
+    const hdrs = { Authorization: `Bearer ${token}`, Accept: 'application/xml' }
+    const [absRes, claimRes] = await Promise.all([
+      fetch(`${base}/abstract`, { headers: hdrs, signal: AbortSignal.timeout(10000) }),
+      fetch(`${base}/claims`,   { headers: hdrs, signal: AbortSignal.timeout(10000) }),
+    ])
+    const abstract   = absRes.ok   ? extractXmlText(await absRes.text(),   'abstract') : null
+    const claimsText = claimRes.ok ? extractXmlText(await claimRes.text(), 'claims')   : null
+    let claimsJson: any[] | null = null
+    if (claimsText) {
+      const parts = claimsText.split(/(?=\b\d{1,2}\.\s)/).filter(p => p.trim())
+      claimsJson = (parts.length > 1 ? parts : [claimsText])
+        .map((t, i) => ({ claim_sequence: i + 1, claim_text: t.trim() }))
+    }
+    return { abstract, claimsJson }
+  } catch { return { abstract: null, claimsJson: null } }
+}
+
+function parseEpoDate(d: string | null): Date | null {
+  if (!d) return null
+  const s = d.replace(/\D/g, '')
+  if (s.length === 8) return new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`)
+  return null
+}
+
+function getXmlTag(xml: string, tag: string): string | null {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+  return m ? m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : null
+}
+
+// EPO OPS biblio responses don't reliably include a top-level <date-of-grant> tag.
+// The grant date instead lives in the <publication-reference> whose <kind> is a
+// "B" publication (B1/B2/B3/...) — the granted-specification publication stage.
+function extractGrantDateFromPublicationRefs(xml: string): string | null {
+  const refs = xml.match(/<publication-reference[^>]*>[\s\S]*?<\/publication-reference>/gi) || []
+  for (const ref of refs) {
+    const kind = getXmlTag(ref, 'kind')
+    if (kind && /^B/i.test(kind)) return getXmlTag(ref, 'date')
+  }
+  return null
+}
+
+function shapeEpoBiblio(biblioXml: string) {
+  const titleEn = biblioXml.match(/<invention-title[^>]*lang="en"[^>]*>([\s\S]*?)<\/invention-title>/i)
+  const titleAny = biblioXml.match(/<invention-title[^>]*>([\s\S]*?)<\/invention-title>/i)
+  const title = (titleEn || titleAny)?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null
+
+  // EPO XML: filing date is nested in <application-reference><document-id><date>
+  const filingDate = parseEpoDate((() => {
+    const appRef = biblioXml.match(/<application-reference[^>]*>[\s\S]*?<\/application-reference>/i)?.[0] || ''
+    return getXmlTag(appRef, 'date') || getXmlTag(biblioXml, 'filing-date')
+  })())
+  const grantDate = parseEpoDate(getXmlTag(biblioXml, 'date-of-grant') || extractGrantDateFromPublicationRefs(biblioXml))
+  const pubDate   = parseEpoDate((() => {
+    const pubRef = biblioXml.match(/<publication-reference[^>]*>[\s\S]*?<\/publication-reference>/i)?.[0] || ''
+    return getXmlTag(pubRef, 'date') || getXmlTag(biblioXml, 'date-of-publication') || getXmlTag(biblioXml, 'publication-date')
+  })())
+
+  let expirationDate: Date | null = null
+  if (filingDate) {
+    expirationDate = new Date(filingDate)
+    expirationDate.setFullYear(expirationDate.getFullYear() + 20)
+  }
+
+  const proceedingsStatus = (() => {
+    const m = biblioXml.match(/<status-of-proceedings[^>]*>([^<]+)<\/status-of-proceedings>/i)
+    return m ? m[1].toLowerCase().trim() : ''
+  })()
+  const kindCodes = (biblioXml.match(/kind="([^"]+)"/gi) || [])
+    .map(m => m.replace(/kind="/i, '').replace(/"$/, '').toUpperCase())
+  const hasGrantKind = kindCodes.some(k => /^B/.test(k))
+
+  let status = 'PENDING'
+  if (grantDate || hasGrantKind || proceedingsStatus.includes('grant') || proceedingsStatus.includes('opposition')) {
+    status = 'GRANTED'
+  } else if (kindCodes.some(k => /^A/.test(k)) || pubDate || proceedingsStatus.includes('published')) {
+    status = 'PUBLISHED'
+  } else if (proceedingsStatus.includes('withdrawn') || proceedingsStatus.includes('refused')) {
+    status = 'ABANDONED'
+  }
+
+  const inventors = (biblioXml.match(/<inventor[^>]*>[\s\S]*?<\/inventor>/gi) || [])
+    .map(b => getXmlTag(b, 'name') || '')
+    .filter(Boolean)
+
+  const assignee = (() => {
+    const m = biblioXml.match(/<applicant[^>]*>[\s\S]*?<\/applicant>/i)
+    return m ? getXmlTag(m[0], 'name') : null
+  })()
+
+  const ipcCodes = (biblioXml.match(/<classification-ipcr[^>]*>[\s\S]*?<\/classification-ipcr>/gi) || [])
+    .map(b => b.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+
+  return { title, filingDate, grantDate, pubDate, expirationDate, status, inventors, assignee, cpcCodes: ipcCodes }
+}
+
+// ── EPO abstract/claims (used for US patents too) ─────────────────────────────
+
+async function fetchAbstractAndClaims(patentNumber: string): Promise<{ abstract: string | null; claimsJson: any[] | null }> {
+  try {
+    const token = await getEpoToken()
+    if (!token) { console.warn('[claims] No EPO token — check EPO_OPS_KEY/EPO_OPS_SECRET'); return { abstract: null, claimsJson: null } }
+    const bare = patentNumber.replace(/^US/i, '').replace(/[,\s]/g, '').replace(/[A-Z]\d*$/i, '')
+    const base = `https://ops.epo.org/3.2/rest-services/published-data/publication/epodoc/US${bare}`
+    const hdrs = { Authorization: `Bearer ${token}`, Accept: 'application/xml' }
+    const [absRes, claimRes] = await Promise.all([
+      fetch(`${base}/abstract`, { headers: hdrs, signal: AbortSignal.timeout(10000) }),
+      fetch(`${base}/claims`,   { headers: hdrs, signal: AbortSignal.timeout(10000) }),
+    ])
+    console.log(`[claims] US${bare} abstract=${absRes.status} claims=${claimRes.status}`)
+    const abstract   = absRes.ok   ? extractXmlText(await absRes.text(),   'abstract') : null
+    const claimsText = claimRes.ok ? extractXmlText(await claimRes.text(), 'claims')   : null
+    let claimsJson: any[] | null = null
+    if (claimsText) {
+      const parts = claimsText.split(/(?=\b\d{1,2}\.\s)/).filter(p => p.trim())
+      claimsJson = (parts.length > 1 ? parts : [claimsText])
+        .map((t, i) => ({ claim_sequence: i + 1, claim_text: t.trim() }))
+    }
+    console.log(`[claims] US${bare} → abstract=${!!abstract} claims=${claimsJson?.length ?? 0}`)
+    return { abstract, claimsJson }
+  } catch (e) {
+    console.error('[claims] fetchAbstractAndClaims error:', e)
+    return { abstract: null, claimsJson: null }
+  }
+}
+
+// ── Shared types ──────────────────────────────────────────────────────────────
+
+export interface PatentRecord {
+  id: string
+  patentNumber: string | null
+  applicationNumber: string | null
+  epNumber: string | null
+  jurisdiction: string | null
+  title: string
+  abstract?: string | null
+}
+
+export interface RefreshResult {
+  id: string
+  patentNumber: string | null
+  applicationNumber?: string | null
+  title: string
+  status: 'updated' | 'unchanged' | 'error' | 'skipped'
+  message?: string
+  changes?: string[]
+  newlyGranted?: boolean
+}
+
+// ── EP refresh ────────────────────────────────────────────────────────────────
+
+async function refreshEp(patent: PatentRecord): Promise<RefreshResult> {
+  const epNum = patent.epNumber
+  if (!epNum) {
+    return { id: patent.id, patentNumber: null, title: patent.title, status: 'skipped', message: 'No EP number' }
+  }
+
+  try {
+    const [biblioXml, abstractData] = await Promise.all([
+      fetchEpoBiblio(epNum),
+      fetchEpoAbstractAndClaims(epNum),
+    ])
+
+    if (!biblioXml) {
+      return { id: patent.id, patentNumber: null, title: patent.title, status: 'error', message: 'Not found in EPO OPS' }
+    }
+
+    const shaped = shapeEpoBiblio(biblioXml)
+
+    const existing = await prisma.patent.findUnique({
+      where: { id: patent.id },
+      select: { status: true, title: true, grantDate: true, assignee: true, abstract: true },
+    })
+
+    const changes: string[] = []
+    if (existing?.status   !== shaped.status)    changes.push(`status: ${existing?.status} → ${shaped.status}`)
+    if (shaped.title && existing?.title !== shaped.title) changes.push('title updated')
+    if (shaped.assignee && existing?.assignee !== shaped.assignee) changes.push(`assignee → ${shaped.assignee}`)
+    if (!existing?.grantDate && shaped.grantDate) changes.push(`grant date: ${shaped.grantDate.toISOString().slice(0,10)}`)
+    if (!existing?.abstract && abstractData.abstract) changes.push('abstract saved')
+    if (abstractData.claimsJson) changes.push(`${abstractData.claimsJson.length} claims saved`)
+
+    await prisma.patent.update({
+      where: { id: patent.id },
+      data: {
+        ...(shaped.title        ? { title: shaped.title }               : {}),
+        status:                   shaped.status as any,
+        ...(shaped.filingDate   ? { filingDate: shaped.filingDate }     : {}),
+        ...(shaped.grantDate    ? { grantDate: shaped.grantDate }       : {}),
+        ...(shaped.pubDate      ? { publicationDate: shaped.pubDate }   : {}),
+        ...(shaped.expirationDate ? { expirationDate: shaped.expirationDate } : {}),
+        ...(shaped.inventors.length ? { inventors: shaped.inventors }   : {}),
+        ...(shaped.assignee     ? { assignee: shaped.assignee }         : {}),
+        ...(shaped.cpcCodes.length  ? { cpcCodes: shaped.cpcCodes }     : {}),
+        jurisdiction: 'EP',
+        rawXmlData: biblioXml,
+        ...(abstractData.abstract   ? { abstract: abstractData.abstract } : {}),
+        ...(abstractData.claimsJson ? { claimsJson: abstractData.claimsJson } : {}),
+      },
+    })
+
+    return {
+      id: patent.id, patentNumber: `EP${epNum}`, title: shaped.title || patent.title,
+      status: changes.length > 0 ? 'updated' : 'unchanged', changes,
+    }
+  } catch (e) {
+    return { id: patent.id, patentNumber: `EP${epNum}`, title: patent.title, status: 'error', message: e instanceof Error ? e.message : 'Unknown error' }
+  }
+}
+
+// ── US refresh ────────────────────────────────────────────────────────────────
+
+async function refreshUs(patent: PatentRecord): Promise<RefreshResult> {
+  if (!patent.patentNumber && !patent.applicationNumber) {
+    return { id: patent.id, patentNumber: null, title: patent.title, status: 'skipped', message: 'No identifiers' }
+  }
+
+  try {
+    const raw = await fetchFromODP(patent.patentNumber, patent.applicationNumber)
+    if (!raw) {
+      return { id: patent.id, patentNumber: patent.patentNumber, title: patent.title, status: 'error', message: 'Not found in USPTO ODP' }
+    }
+
+    const record  = raw.patentFileWrapperDataBag?.[0] || {}
+    const appMeta = record.applicationMetaData || {}
+    const appNum  = record.applicationNumberText || patent.applicationNumber
+
+    const newPatentNumEarly = appMeta.patentNumber || patent.patentNumber
+
+    const [continuity, abstractData, documents] = await Promise.all([
+      appNum ? fetchContinuity(appNum) : Promise.resolve(null),
+      newPatentNumEarly ? fetchAbstractAndClaims(newPatentNumEarly) : Promise.resolve({ abstract: null, claimsJson: null }),
+      appNum ? fetchDocuments(appNum) : Promise.resolve([]),
+    ])
+
+    const inventors = (appMeta.inventorBag || [])
+      .map((inv: any) => inv.inventorNameText || `${inv.inventorFirstNameText || ''} ${inv.inventorLastNameText || ''}`.trim())
+      .filter(Boolean)
+    const cpcCodes = (appMeta.cpcClassificationBag || [])
+      .map((c: any) => (typeof c === 'string' ? c : c?.cpcClassificationText || ''))
+      .filter(Boolean)
+
+    let expirationDate: Date | null = null
+    if (appMeta.filingDate) {
+      const d = new Date(appMeta.filingDate)
+      d.setFullYear(d.getFullYear() + 20)
+      expirationDate = d
+    }
+
+    const newGrantDate = appMeta.grantDate ? new Date(appMeta.grantDate) : null
+    const newStatus    = mapStatus(appMeta.applicationStatusDescriptionText || appMeta.applicationStatusCode || '')
+    const newType      = mapType(appMeta.applicationTypeCode || '')
+    const newTitle     = appMeta.inventionTitle || appMeta.patentTitle || patent.title
+    const newAssignee  = appMeta.applicantBag?.[0]?.applicantNameText || appMeta.firstApplicantName || null
+    const newPatentNum = newPatentNumEarly
+
+    const existing = await prisma.patent.findUnique({
+      where: { id: patent.id },
+      select: { status: true, title: true, grantDate: true, assignee: true, type: true, patentNumber: true, abstract: true, parentPatentId: true, source: true },
+    })
+
+    const changes: string[] = []
+    if (existing?.status   !== newStatus)    changes.push(`status: ${existing?.status} → ${newStatus}`)
+    if (existing?.title    !== newTitle)     changes.push('title updated')
+    if (existing?.assignee !== newAssignee)  changes.push(`assignee → ${newAssignee}`)
+    if (!existing?.grantDate && newGrantDate) changes.push(`grant date: ${newGrantDate.toISOString().slice(0,10)}`)
+    if (!existing?.patentNumber && newPatentNum) changes.push(`patent number: ${newPatentNum}`)
+    if (!existing?.abstract && abstractData?.abstract) changes.push('abstract saved')
+    if (abstractData?.claimsJson) changes.push(`${abstractData.claimsJson.length} claims saved`)
+
+    await prisma.patent.update({
+      where: { id: patent.id },
+      data: {
+        applicationNumber: appNum || patent.applicationNumber,
+        patentNumber:      newPatentNum,
+        publicationNumber: appMeta.earliestPublicationNumber || null,
+        title:             newTitle,
+        status:            newStatus as any,
+        type:              newType   as any,
+        filingDate:        appMeta.filingDate              ? new Date(appMeta.filingDate)              : null,
+        publicationDate:   appMeta.earliestPublicationDate ? new Date(appMeta.earliestPublicationDate) : null,
+        grantDate:         newGrantDate,
+        expirationDate,
+        inventors,
+        assignee:          newAssignee,
+        docketNumber:      appMeta.docketNumber ?? null,
+        cpcCodes,
+        rawJsonData:       { ...slimJson(raw), documentBag: documents },
+        ...(abstractData?.abstract   ? { abstract:   abstractData.abstract }   : {}),
+        ...(abstractData?.claimsJson ? { claimsJson: abstractData.claimsJson } : {}),
+      },
+    })
+
+    // ── Wire up continuity relationships ───────────────────────────────────────
+    // continuity data has parentContinuityBag and childContinuityBag
+    // each entry has applicationNumberText and continuityTypeCategory
+    if (continuity) {
+      const bag = continuity.patentFileWrapperDataBag?.[0] || continuity
+      const parents: any[] = bag.parentContinuityBag || []
+      const children: any[] = bag.childContinuityBag || []
+
+      // Map continuity type string → our enum
+      const mapConType = (t: string): string => {
+        const u = (t || '').toUpperCase()
+        if (u.includes('CONTINUATION IN PART') || u.includes('CIP')) return 'CONTINUATION_IN_PART'
+        if (u.includes('CONTINUATION'))   return 'CONTINUATION'
+        if (u.includes('DIVISIONAL'))     return 'DIVISIONAL'
+        if (u.includes('REISSUE'))        return 'REISSUE'
+        return 'CONTINUATION'
+      }
+
+      // Try to link this patent to a parent already in DB
+      if (parents.length > 0 && !existing?.parentPatentId) {
+        for (const parent of parents) {
+          const parentAppNum = (parent.parentApplicationNumberText || parent.applicationNumberText || '').replace(/[\/,\s]/g, '')
+          if (!parentAppNum) continue
+          const conType = parent.claimParentageTypeCode || parent.claimParentageTypeCodeDescriptionText || parent.continuityTypeCategory || ''
+          const parentInDb = await prisma.patent.findFirst({
+            where: { applicationNumber: parentAppNum },
+            select: { id: true }
+          })
+          if (parentInDb) {
+            await prisma.patent.update({
+              where: { id: patent.id },
+              data: {
+                parentPatentId:   parentInDb.id,
+                continuationType: mapConType(conType) as any,
+              }
+            })
+            changes.push(`linked to parent (${mapConType(conType)})`)
+            break
+          }
+        }
+      }
+
+      // Try to link children already in DB back to this patent
+      for (const child of children) {
+        const childAppNum = (child.childApplicationNumberText || child.applicationNumberText || '').replace(/[\/,\s]/g, '')
+        if (!childAppNum) continue
+        const conType = child.claimParentageTypeCode || child.claimParentageTypeCodeDescriptionText || child.continuityTypeCategory || ''
+        const childInDb = await prisma.patent.findFirst({
+          where: { applicationNumber: childAppNum, parentPatentId: null },
+          select: { id: true }
+        })
+        if (childInDb) {
+          await prisma.patent.update({
+            where: { id: childInDb.id },
+            data: {
+              parentPatentId:   patent.id,
+              continuationType: mapConType(conType) as any,
+            }
+          })
+          changes.push(`child ${childAppNum} linked (${mapConType(conType)})`)
+        }
+      }
+    }
+
+    if (newGrantDate && newType === 'UTILITY') {
+      const feeCount = await prisma.maintenanceFee.count({ where: { patentId: patent.id } })
+      if (feeCount === 0) {
+        const PAYMENT_CODES: Record<string, string> = {
+          M1551: 'MAINTENANCE_3_5',  M2551: 'MAINTENANCE_3_5',  M3551: 'MAINTENANCE_3_5',
+          M1552: 'MAINTENANCE_7_5',  M2552: 'MAINTENANCE_7_5',  M3552: 'MAINTENANCE_7_5',
+          M1553: 'MAINTENANCE_11_5', M2553: 'MAINTENANCE_11_5', M3553: 'MAINTENANCE_11_5',
+        }
+        const eventBag: any[] = record.eventDataBag || []
+        const paidFees = new Map<string, Date | null>()
+        for (const ev of eventBag) {
+          const code = (ev.eventCode || '').toUpperCase().trim()
+          if (PAYMENT_CODES[code]) paidFees.set(PAYMENT_CODES[code], ev.eventDate ? new Date(ev.eventDate) : null)
+        }
+
+        const fees = calculateMaintenanceFees(newGrantDate)
+        const now  = new Date()
+        await Promise.allSettled(fees.map(fee => {
+          const isPaid = paidFees.has(fee.feeType)
+          const status = isPaid ? 'PAID'
+            : fee.gracePeriodEnd < now ? 'OVERDUE'
+            : fee.dueDate < now        ? 'DUE'
+            : 'UPCOMING'
+          return prisma.maintenanceFee.create({
+            data: {
+              patentId: patent.id, feeType: fee.feeType as any,
+              dueDate: fee.dueDate, gracePeriodEnd: fee.gracePeriodEnd,
+              status: status as any,
+              ...(isPaid ? { paidDate: paidFees.get(fee.feeType) ?? undefined } : {}),
+            }
+          })
+        }))
+        changes.push('maintenance fees auto-generated')
+      }
+    }
+
+    const newlyGranted = !existing?.patentNumber && !!newPatentNum && existing?.source === 'CONTINUATION'
+    return {
+      id: patent.id, patentNumber: newPatentNum, applicationNumber: patent.applicationNumber,
+      title: newTitle, status: changes.length > 0 ? 'updated' : 'unchanged', changes,
+      ...(newlyGranted ? { newlyGranted: true } : {}),
+    }
+  } catch (e) {
+    return { id: patent.id, patentNumber: patent.patentNumber, title: patent.title, status: 'error', message: e instanceof Error ? e.message : 'Unknown error' }
+  }
+}
+
+// ── Router: EP vs US ──────────────────────────────────────────────────────────
+
+export async function refreshOne(patent: PatentRecord): Promise<RefreshResult> {
+  // Detect EP by epNumber presence OR jurisdiction field
+  const isEp = !!patent.epNumber || (patent.jurisdiction || '').toUpperCase() === 'EP'
+  return isEp ? refreshEp(patent) : refreshUs(patent)
+}
+
+export const PATENT_SELECT = {
+  id: true, patentNumber: true, applicationNumber: true, epNumber: true, jurisdiction: true, title: true,
+} as const
+
+// ── Bulk refresh (used by POST /api/patents/refresh and the daily cron) ───────
+
+export async function refreshAllPatents(ids?: string[]): Promise<{
+  results: RefreshResult[]
+  total: number
+  updated: number
+  unchanged: number
+  failed: number
+}> {
+  const targets = ids?.length
+    ? await prisma.patent.findMany({ where: { id: { in: ids } }, select: PATENT_SELECT })
+    : await prisma.patent.findMany({ select: PATENT_SELECT, orderBy: { updatedAt: 'asc' } })
+
+  const results: RefreshResult[] = []
+  const BATCH = 5
+  for (let i = 0; i < targets.length; i += BATCH) {
+    const batch = targets.slice(i, i + BATCH)
+    const batchResults = await Promise.all(batch.map(p => refreshOne(p)))
+    results.push(...batchResults)
+  }
+
+  const updatedCount = results.filter(r => r.status === 'updated').length
+  if (updatedCount > 0) generateAndCacheSummary().catch(() => {})
+
+  return {
+    results,
+    total:     targets.length,
+    updated:   updatedCount,
+    unchanged: results.filter(r => r.status === 'unchanged').length,
+    failed:    results.filter(r => r.status === 'error' || r.status === 'skipped').length,
+  }
+}

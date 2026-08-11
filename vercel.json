@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/refresh-patents", "schedule": "0 10 * * *" },
+    { "path": "/api/cron/activity-digest", "schedule": "30 10 * * *" }
+  ]
+}

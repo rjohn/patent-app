@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { Activity, FileText, DollarSign, GitBranch, Loader2, AlertCircle, ChevronRight, Calendar } from 'lucide-react'
-import type { ActivitySummary, ActivityEvent, ActivityFee, ActivityChange } from '@/app/api/activity/route'
+import type { ActivitySummary, ActivityEvent, ActivityFee, ActivityChange } from '@/lib/activity'
 
 type Period = 'week' | 'month' | 'lastmonth'
 
