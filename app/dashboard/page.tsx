@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   FileText, GitBranch, CalendarClock, AlertTriangle,
-  TrendingUp, Clock, CheckCircle2, Loader2, RefreshCw, Sparkles, Search, ChevronDown
+  TrendingUp, Clock, CheckCircle2, Loader2, RefreshCw, Sparkles, Search, ChevronDown, Users
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -46,6 +46,7 @@ interface DashboardData {
     US:  { year: number; total: number }[]
     EP:  { year: number; total: number }[]
   }
+  topInventors: { name: string; count: number }[]
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -280,6 +281,58 @@ function ActivityWidget() {
   )
 }
 
+function InventorScorecard({ inventors }: { inventors: { name: string; count: number }[] }) {
+  const { theme } = useTheme()
+  const light = theme === 'light'
+  const divider = light ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)'
+
+  if (inventors.length === 0) {
+    return (
+      <div className="card">
+        <div className="px-6 py-4" style={{ borderBottom: divider }}>
+          <h2 className="section-title">Inventor Leaderboard</h2>
+        </div>
+        <div className="px-6 py-10 text-center text-patent-muted text-sm">No named inventors on file yet</div>
+      </div>
+    )
+  }
+
+  const maxCount = inventors[0].count
+
+  return (
+    <div className="card">
+      <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: divider }}>
+        <h2 className="section-title flex items-center gap-2">
+          <Users className="w-4 h-4" style={{ color: '#c084fc' }} /> Inventor Leaderboard
+        </h2>
+        <span className="text-xs text-patent-muted">By patents named on</span>
+      </div>
+      <table className="data-table">
+        <thead>
+          <tr><th>Rank</th><th>Inventor</th><th>Patents</th></tr>
+        </thead>
+        <tbody>
+          {inventors.map((inv, i) => (
+            <tr key={inv.name}>
+              <td className="text-patent-muted text-xs w-10">{i + 1}</td>
+              <td className="text-sm" style={{ color: light ? '#334155' : 'rgba(255,255,255,0.85)' }}>{inv.name}</td>
+              <td>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 rounded-full flex-1 max-w-[120px] overflow-hidden"
+                    style={{ background: light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${(inv.count / maxCount) * 100}%`, background: '#c084fc' }} />
+                  </div>
+                  <span className="mono text-xs" style={{ color: 'var(--patent-sky)' }}>{inv.count}</span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function useGreeting(name: string) {
   const h = new Date().getHours()
   const time = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'
@@ -331,7 +384,7 @@ export default function DashboardPage() {
   const light = theme === 'light'
   const divider = light ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)'
 
-  const { stats, recentDeadlines, recentPatents, growthByYear } = data
+  const { stats, recentDeadlines, recentPatents, growthByYear, topInventors } = data
 
   return (
     <div className="p-8 space-y-8 animate-fade-in">
@@ -372,8 +425,11 @@ export default function DashboardPage() {
           label="Expiring This Year" value={stats.expiringYear} color="yellow" />
       </div>
 
-      {/* AI Portfolio Summary */}
-      <PortfolioSummary />
+      {/* Portfolio Summary + Inventor Leaderboard */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <PortfolioSummary />
+        <InventorScorecard inventors={topInventors} />
+      </div>
 
       {/* Growth chart + Activity widget */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

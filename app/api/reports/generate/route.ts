@@ -296,10 +296,17 @@ export async function POST(req: NextRequest) {
       where = { ...baseWhere, status: 'GRANTED' }
     }
 
+    // Applications are ordered by filing (application) date; granted-patent
+    // reports (and the deadlines report, which lists granted patents with fees)
+    // order by grant date.
+    const orderBy = reportId === 'pending-applications'
+      ? { filingDate: 'desc' as const }
+      : { grantDate: 'desc' as const }
+
     const patents = await prisma.patent.findMany({
       where,
       include: { family: true, maintenanceFees: { orderBy: { dueDate: 'asc' } } },
-      orderBy: { filingDate: 'desc' },
+      orderBy,
     })
 
     const date        = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })

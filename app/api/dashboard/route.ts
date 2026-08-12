@@ -18,9 +18,11 @@ export async function GET() {
       totalPatents, granted, pending, abandoned, families,
       upcomingDeadlines, overdueDeadlines, expiringYear,
       grantedUS, grantedEP, openApplications,
-      recentDeadlinesRaw, recentPatents, grantedPatents,
+      recentDeadlinesRaw, recentPatents, grantedPatents, inventorPatents,
     ] = await Promise.all([
-      prisma.patent.count(),
+      // Exclude dead-end provisional filings: EXPIRED with no patentNumber means it
+      // lapsed before ever becoming a real patent, not a granted patent whose term ran out.
+      prisma.patent.count({ where: { NOT: { status: 'EXPIRED', patentNumber: null } } }),
       prisma.patent.count({ where: { status: 'GRANTED' } }),
       prisma.patent.count({ where: { status: 'PENDING' } }),
       prisma.patent.count({ where: { status: 'ABANDONED' } }),
@@ -51,6 +53,10 @@ export async function GET() {
       prisma.patent.findMany({
         where: { grantDate: { not: null } },
         select: { grantDate: true, jurisdiction: true },
+      }),
+      prisma.patent.findMany({
+        where: { inventors: { isEmpty: false } },
+        select: { inventors: true },
       }),
     ])
 
@@ -83,6 +89,49 @@ export async function GET() {
       EP:  buildSeries('EP'),
     }
 
+    // The same person shows up in structurally different formats depending on
+    // source: USPTO gives "Gregory A. Watson"; EPO's epodoc format gives
+    // "Watson Gregory A [US]"; other EPO records give "Watson, Gregory, A." or
+    // "Watson, Gregory A." — same three tokens, different order/punctuation.
+    // Sorting the cleaned tokens gives a format-agnostic grouping key.
+    const titleCase = (raw: string) =>
+      raw.trim().replace(/\s+/g, ' ').split(' ').map(word =>
+        word.split(/([-'])/).map(seg =>
+          seg && /[a-z]/i.test(seg[0]) ? seg[0].toUpperCase() + seg.slice(1).toLowerCase() : seg
+        ).join('')
+      ).join(' ')
+    const cleanName = (raw: string) => raw.replace(/\[[^\]]*\]/g, '').trim()
+    const tokenKey  = (raw: string) =>
+      cleanName(raw).replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).map(t => t.toUpperCase()).sort().join(' ')
+    // Prefer "First M. Last" (no comma, no "[US]"-style suffix) as the display form
+    const isNaturalForm = (raw: string) => !cleanName(raw).includes(',') && !raw.includes('[')
+
+    const inventorGroups = new Map<string, { count: number; candidates: Map<string, number> }>()
+    for (const p of inventorPatents) {
+      const seenKeys = new Set<string>()
+      for (const raw0 of p.inventors) {
+        const raw = raw0.trim()
+        if (!raw) continue
+        const key = tokenKey(raw)
+        if (!key || seenKeys.has(key)) continue
+        seenKeys.add(key)
+        let group = inventorGroups.get(key)
+        if (!group) { group = { count: 0, candidates: new Map() }; inventorGroups.set(key, group) }
+        group.count++
+        if (isNaturalForm(raw)) {
+          const display = titleCase(cleanName(raw))
+          group.candidates.set(display, (group.candidates.get(display) || 0) + 1)
+        }
+      }
+    }
+    const topInventors = Array.from(inventorGroups.entries())
+      .map(([key, group]) => {
+        const bestCandidate = Array.from(group.candidates.entries()).sort((a, b) => b[1] - a[1])[0]
+        return { name: bestCandidate ? bestCandidate[0] : titleCase(key), count: group.count }
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+
     const today = new Date()
     const recentDeadlines = recentDeadlinesRaw.map(f => ({
       id:            f.id,
@@ -101,6 +150,7 @@ export async function GET() {
       recentDeadlines,
       recentPatents,
       growthByYear,
+      topInventors,
     })
   } catch (e) {
     console.error(e)

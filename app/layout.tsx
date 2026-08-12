@@ -32,8 +32,8 @@ export const metadata: Metadata = {
   description: 'Manage your patent portfolio, families, and deadlines',
   manifest: '/manifest.json',
   icons: {
-    icon: '/p4-icon.png',
-    shortcut: '/p4-icon.png',
+    icon: '/p4-icon-favicon.png',
+    shortcut: '/p4-icon-favicon.png',
     apple: '/icons/apple-touch-icon.png',
   },
   appleWebApp: {
