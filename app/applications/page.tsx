@@ -232,9 +232,10 @@ export default function ApplicationsPage() {
                   <td><StatusBadge status={app.status} /></td>
                   <td>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {app.status === 'GRANTED' && app.patentNumber && (
+                      {app.status === 'GRANTED' && (
                         <button onClick={() => handleAddToPortfolio(app.id)} disabled={movingId === app.id}
-                          className="btn-ghost p-1.5" style={{ color: '#4ade80' }} title="Issued — add to portfolio">
+                          className="btn-ghost p-1.5" style={{ color: '#4ade80' }}
+                          title={app.patentNumber ? 'Issued — add to portfolio' : 'Granted (patent number pending from USPTO) — add to portfolio'}>
                           {movingId === app.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderPlus className="w-3.5 h-3.5" />}
                         </button>
                       )}
