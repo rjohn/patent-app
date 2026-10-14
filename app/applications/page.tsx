@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { FileText, Loader2, AlertCircle, ExternalLink, RefreshCw, GitBranch, CheckCircle2, ArrowRight } from 'lucide-react'
+import { FileText, Loader2, AlertCircle, ExternalLink, RefreshCw, GitBranch, CheckCircle2, ArrowRight, FolderPlus } from 'lucide-react'
 
 interface Application {
   id: string
@@ -81,6 +81,7 @@ export default function ApplicationsPage() {
   const [refreshing, setRefreshing] = useState<string | null>(null)
   const [issuedAlert, setIssuedAlert] = useState<IssuedAlert | null>(null)
   const [moving, setMoving]   = useState(false)
+  const [movingId, setMovingId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -110,17 +111,27 @@ export default function ApplicationsPage() {
     }
   }
 
-  const moveToPortfolio = async () => {
-    if (!issuedAlert) return
-    setMoving(true)
-    await fetch(`/api/patents/${issuedAlert.id}`, {
+  const addToPortfolio = async (id: string) => {
+    await fetch(`/api/patents/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source: 'PORTFOLIO' }),
     })
+    load()
+  }
+
+  const moveToPortfolio = async () => {
+    if (!issuedAlert) return
+    setMoving(true)
+    await addToPortfolio(issuedAlert.id)
     setMoving(false)
     setIssuedAlert(null)
-    load()
+  }
+
+  const handleAddToPortfolio = async (id: string) => {
+    setMovingId(id)
+    await addToPortfolio(id)
+    setMovingId(null)
   }
 
   return (
@@ -221,6 +232,12 @@ export default function ApplicationsPage() {
                   <td><StatusBadge status={app.status} /></td>
                   <td>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {app.status === 'GRANTED' && app.patentNumber && (
+                        <button onClick={() => handleAddToPortfolio(app.id)} disabled={movingId === app.id}
+                          className="btn-ghost p-1.5" style={{ color: '#4ade80' }} title="Issued — add to portfolio">
+                          {movingId === app.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderPlus className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
                       <button onClick={() => refresh(app.id)} disabled={refreshing === app.id}
                         className="btn-ghost p-1.5" title="Refresh from USPTO">
                         <RefreshCw className={`w-3.5 h-3.5 ${refreshing === app.id ? 'animate-spin' : ''}`} />
