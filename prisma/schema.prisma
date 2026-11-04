@@ -111,6 +111,7 @@ model Patent {
   title             String
   abstract          String?       @db.Text
   claimsJson        Json?
+  claimsText        String?       @db.Text // Flattened claimsJson for search; kept in sync by lib/prisma.ts
   status            PatentStatus  @default(PENDING)
   type              PatentType    @default(UTILITY)
   
