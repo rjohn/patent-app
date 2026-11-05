@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server'
 const PUBLIC_PATHS = ['/login', '/invite', '/reset-password']
 // /api/cron/* has no session cookie (Vercel Cron sends a CRON_SECRET bearer token instead) —
 // exempt from the session gate here, but each route still checks that token itself.
-const PUBLIC_API   = ['/api/auth', '/api/team/invite/accept', '/api/cron']
+// /api/mcp likewise uses its own MCP_API_KEY bearer token (Claude clients have no session cookie).
+const PUBLIC_API   = ['/api/auth', '/api/team/invite/accept', '/api/cron', '/api/mcp']
 
 export async function middleware(req: NextRequest) {
   const res      = NextResponse.next()

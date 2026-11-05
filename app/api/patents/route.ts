@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { generateAndCacheSummary } from '@/lib/portfolio-summary'
+import { patentSearchConditions } from '@/lib/patent-search'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,28 +28,7 @@ export async function GET(req: NextRequest) {
     const orderField = allowedSortFields[sortBy] || 'filingDate'
 
     const where: any = {}
-    if (q) {
-      // inventors / cpcCodes are String[] — Prisma can only exact-match array elements,
-      // so find substring matches with raw SQL and fold them in by id.
-      const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
-      const arrayMatches = await prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM patents
-        WHERE EXISTS (SELECT 1 FROM unnest(inventors) AS i WHERE i ILIKE ${pattern})
-           OR EXISTS (SELECT 1 FROM unnest("cpcCodes") AS c WHERE c ILIKE ${pattern})
-      `
-      where.OR = [
-        ...(arrayMatches.length ? [{ id: { in: arrayMatches.map(r => r.id) } }] : []),
-        { claimsText:        { contains: q, mode: 'insensitive' } },
-        { title:             { contains: q, mode: 'insensitive' } },
-        { patentNumber:      { contains: q, mode: 'insensitive' } },
-        { applicationNumber: { contains: q, mode: 'insensitive' } },
-        { epNumber:          { contains: q.replace(/^EP/i, ''), mode: 'insensitive' } },
-        { publicationNumber: { contains: q, mode: 'insensitive' } },
-        { assignee:          { contains: q, mode: 'insensitive' } },
-        { docketNumber:      { contains: q, mode: 'insensitive' } },
-        { abstract:          { contains: q, mode: 'insensitive' } },
-      ]
-    }
+    if (q) where.OR = await patentSearchConditions(q)
     if (status)       where.status       = status
     if (type)         where.type         = type
     if (familyId)     where.familyId     = familyId

@@ -27,7 +27,7 @@ Full-stack patent portfolio management application. Tracks US and EP patents, ap
 - `DATABASE_URL` — pooled (PgBouncer) for runtime queries
 - `DIRECT_URL` — direct connection for `prisma db push` / migrations
 
-Auth is half-wired: `@supabase/supabase-js` and `@supabase/auth-helpers-nextjs` are installed, `User.supabaseId` bridges to Supabase Auth, but session middleware is not implemented — all routes are currently unprotected.
+Auth: `middleware.ts` enforces a Supabase session on every page and API route except the `PUBLIC_PATHS` / `PUBLIC_API` lists. Routes in `PUBLIC_API` that aren't meant to be public (`/api/cron/*`, `/api/mcp`) check their own bearer token. `User.supabaseId` bridges to Supabase Auth.
 
 **Prisma** uses `db push` (no migration history). Schema-first, no migration files checked in. `prisma generate` runs at build time via `"build": "prisma generate && next build"`.
 
@@ -67,7 +67,7 @@ Utility packages: `clsx ^2.1.0` + `tailwind-merge ^2.2.1` (combined as `cn()`), 
 3. **External API proxy pattern** — USPTO PDF downloads require an API key that can't be set from browser `<a>` tags. Server-side proxy route adds the header and streams the PDF back.
 4. **`rawJsonData` caching** — slimmed USPTO response stored as `Json?` on Patent model to avoid re-fetching. Live fetch is the fallback when empty.
 5. **Self-relation for continuations** — `Patent.parentPatentId` → self-relation `"PatentContinuations"` enables recursive tree queries.
-6. **No auth middleware** — all routes unprotected. Supabase Auth SDK is installed but session checks not enforced.
+6. **Session middleware + per-route bearer tokens** — `middleware.ts` gates pages/APIs on a Supabase session; machine callers (Vercel Cron, MCP clients) are exempted there and authenticate with their own secret.
 
 ---
 
@@ -85,6 +85,7 @@ NEXT_PUBLIC_APP_URL=        # e.g. https://your-app.vercel.app (for invite links
 CRON_SECRET=                # Shared secret for /api/cron/* routes; Vercel Cron sends it as `Authorization: Bearer $CRON_SECRET`
 RESEND_API_KEY=             # Resend API key, used by lib/email.ts for activity digest emails
 EMAIL_FROM=                 # Verified sender, e.g. "Plaz4 IP <digest@mail.yourdomain.com>"
+MCP_API_KEY=                # Bearer token for /api/mcp (Claude MCP connector). Endpoint returns 401 for everyone if unset
 ```
 
 ---
@@ -151,6 +152,7 @@ app/
     settings/activity-subscription/  # GET, PATCH: current user's digest subscription
     cron/refresh-patents/     # GET (CRON_SECRET-guarded): daily bulk USPTO/EPO refresh
     cron/activity-digest/     # GET (CRON_SECRET-guarded): sends due weekly/monthly digest emails
+    mcp/                      # GET/POST/DELETE (MCP_API_KEY-guarded): read-only MCP server for Claude
 
 components/
   Sidebar.tsx         # Navigation sidebar with "Plaz4 IP" branding, p4-icon.png
@@ -163,6 +165,9 @@ lib/
   patent-refresh.ts   # USPTO/EPO refresh logic; refreshAllPatents() used by /manage and the daily cron
   activity.ts         # buildActivitySummary()/buildEmailHtml() — shared by /api/activity and the digest cron
   email.ts            # sendEmail() — thin Resend wrapper
+  mcp-server.ts       # createMcpServer() — MCP tool definitions served by /api/mcp
+  patent-search.ts    # patentSearchConditions() — free-text patent search, shared by /api/patents and MCP
+  claims-text.ts      # claimsToText() — flattens claimsJson into Patent.claimsText (synced in lib/prisma.ts)
 
 public/
   p4-icon.png         # App icon (white background)
@@ -386,9 +391,21 @@ Users manage their own subscription from **Settings → Portfolio Activity Diges
 
 ---
 
+## MCP Server (Claude connector)
+
+`/api/mcp` is a stateless Streamable-HTTP MCP endpoint (`@modelcontextprotocol/sdk`, `WebStandardStreamableHTTPServerTransport`) that lets Claude query the portfolio. Read-only tools, defined in `lib/mcp-server.ts`: `portfolio_overview`, `search_patents`, `get_patent`, `get_claims`, `get_prosecution_history`, `list_families`, `get_family`, `upcoming_fees`, `recent_activity`, `list_watchlists`, `get_watchlist`. Patent tools accept an internal id or any patent / application / EP / publication number format.
+
+Auth is a single shared `MCP_API_KEY` bearer token (no per-user OAuth yet, so it can't be added as a claude.ai custom connector). Connect from Claude Code:
+
+```bash
+claude mcp add --transport http plaz4-ip https://<app-url>/api/mcp --header "Authorization: Bearer $MCP_API_KEY"
+```
+
+---
+
 ## Known Issues / TODOs
 
 - Supabase Auth not wired to invite flow (user record created but no auth credential)
-- Session/auth middleware not implemented — all routes currently unprotected
+- MCP endpoint uses one shared key — add OAuth (Supabase) for per-user access and claude.ai connector support
 - Documents tab populated on first load only if patent has been refreshed after document fetching was added; otherwise falls back to live USPTO fetch
 - `FamilyTree.tsx` — `nodeCount` must be declared before `innerH` (already fixed)
