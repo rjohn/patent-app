@@ -246,12 +246,22 @@ export default function HelpPage() {
               </p>
               <H3>Filtering</H3>
               <ul className="space-y-1 list-disc list-inside">
-                <li>Search by patent number, application number, or title.</li>
+                <li>
+                  Search matches any part of the text in these fields (not case-sensitive):
+                  title, abstract, <strong>claims</strong>, patent / application / publication / EP number,
+                  docket number, assignee, <strong>inventor</strong> names, and <strong>CPC codes</strong>.
+                </li>
                 <li>Filter by <Badge color="blue">Status</Badge> (Granted, Pending, Abandoned, Expired, Published).</li>
                 <li>Filter by <Badge color="purple">Type</Badge> (Utility, Design, Plant, PCT, …).</li>
                 <li>Filter by <Badge color="green">Jurisdiction</Badge> (US / EP).</li>
                 <li>Filter by <Badge color="blue">Family</Badge>.</li>
               </ul>
+              <Note type="tip">
+                Partial matches work — <code className="mono">smith</code> finds inventor “Smith, John”, and{' '}
+                <code className="mono">A61B</code> finds every patent with a CPC code in that class.
+                Claim text is searchable once a patent&apos;s claims have been loaded — by a refresh or by
+                opening its Claims tab.
+              </Note>
               <H3>Status badges</H3>
               <div className="flex flex-wrap gap-2 mt-1">
                 <Badge color="green">GRANTED</Badge>
@@ -290,7 +300,8 @@ export default function HelpPage() {
                 are highlighted.
               </p>
               <Note type="info">
-                Claims are fetched live from USPTO. If the patent has not yet been granted, no claims document may be available.
+                Claims are fetched from USPTO the first time and saved, which also makes them searchable from the
+                Patents list. If the patent has not yet been granted, no claims document may be available.
               </Note>
 
               <H3>History tab</H3>
