@@ -6,7 +6,7 @@ import {
   BookOpen, LayoutDashboard, FileText, GitBranch, CalendarClock,
   Banknote, Eye, BarChart3, SearchCode, Upload, Database,
   Settings, ChevronDown, ChevronRight, Search, ExternalLink,
-  Info, AlertTriangle, CheckCircle2, Lightbulb,
+  Info, AlertTriangle, CheckCircle2, Lightbulb, Sparkles, Copy, Check,
 } from 'lucide-react'
 import { useTheme } from '@/context/theme-context'
 
@@ -23,6 +23,7 @@ const SECTIONS = [
   { id: 'add-patent',   label: 'Adding Patents',        icon: SearchCode },
   { id: 'manage',       label: 'Manage Data',           icon: Database },
   { id: 'settings',     label: 'Settings & Team',       icon: Settings },
+  { id: 'claude',       label: 'Claude Connector',      icon: Sparkles },
 ]
 
 function Note({ type = 'info', children }: { type?: 'info' | 'tip' | 'warning'; children: React.ReactNode }) {
@@ -92,12 +93,33 @@ function Badge({ children, color = 'blue' }: { children: React.ReactNode; color?
   )
 }
 
+function CopyUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex items-center gap-2 my-2">
+      <code className="mono text-xs px-2 py-1.5 rounded flex-1 break-all"
+        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+        {url}
+      </code>
+      <button
+        onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+        className="btn-ghost text-xs px-2 py-1 flex items-center gap-1">
+        {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  )
+}
+
 export default function HelpPage() {
   const { theme } = useTheme()
   const light = theme === 'light'
   const [activeSection, setActiveSection] = useState('overview')
   const [search, setSearch] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
+  const [mcpUrl, setMcpUrl] = useState('https://plaz4-ip.vercel.app/api/mcp')
+
+  useEffect(() => { setMcpUrl(`${window.location.origin}/api/mcp`) }, [])
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -599,6 +621,95 @@ export default function HelpPage() {
                 Without a USPTO API key, requests are rate-limited to a few calls per minute.
                 The app will still work but large bulk refreshes may be throttled.
               </Note>
+            </Section>
+
+            {/* CLAUDE CONNECTOR */}
+            <Section id="claude" title="Claude Connector" icon={Sparkles}>
+              <p>
+                Plaz4 IP can be connected to <strong>Claude</strong> (the Claude desktop app, claude.ai
+                and the Claude mobile apps) so you can ask questions about the portfolio in plain
+                language — for example <em>&ldquo;Which maintenance fees are due in the next 90 days?&rdquo;</em>,{' '}
+                <em>&ldquo;Summarize the prosecution history of 19/065,654&rdquo;</em> or{' '}
+                <em>&ldquo;Which patents claim a dielectric barrier electrode?&rdquo;</em>
+              </p>
+              <Note type="info">
+                The connector is <strong>read-only</strong>. Claude can look up patents, claims, families,
+                prosecution history, fees, activity and watchlists, but cannot change any data.
+                You need a Plaz4 IP account to connect.
+              </Note>
+
+              <H3>Add the connector in Claude Desktop</H3>
+              <ol className="list-decimal pl-5 space-y-1.5">
+                <li>Open the Claude desktop app and go to <strong>Settings → Connectors</strong>.</li>
+                <li>Click <strong>Add custom connector</strong>.</li>
+                <li>
+                  Enter the name <strong>Plaz4 IP</strong> and this URL:
+                  <CopyUrl url={mcpUrl} />
+                  Leave <strong>Advanced settings</strong> (OAuth Client ID / Secret) empty.
+                </li>
+                <li>Click <strong>Add</strong>, then <strong>Connect</strong> next to Plaz4 IP.</li>
+                <li>
+                  A browser window opens. Sign in to Plaz4 IP if asked (check your email for the
+                  sign-in link — it brings you back to the same request), then click{' '}
+                  <strong>Approve</strong> on the authorization screen.
+                </li>
+                <li>You are returned to Claude and the connector shows as connected.</li>
+              </ol>
+              <Note type="tip">
+                Connectors sync across your Claude account, so once added in Claude Desktop it is also
+                available on claude.ai and the Claude mobile apps — no need to add it again.
+              </Note>
+              <Note type="warning">
+                On Claude <strong>Team</strong> or <strong>Enterprise</strong> plans, an organization Owner
+                may need to add the connector first under <strong>Organization settings → Connectors</strong>.
+                Members then click <strong>Connect</strong> under <strong>Settings → Connectors</strong>.
+              </Note>
+
+              <H3>Using it in a chat</H3>
+              <p>
+                In a new chat, click the <strong>+</strong> (or tools) button below the message box and make
+                sure <strong>Plaz4 IP</strong> is switched on. Then just ask. Claude may ask permission the
+                first time it uses each tool — choose <strong>Always allow</strong> to skip future prompts.
+                Patents can be referred to by internal id or by any patent, application, EP or publication
+                number format (e.g. <KBD>11684018</KBD>, <KBD>19/065,654</KBD>, <KBD>EP3456789</KBD>).
+              </p>
+              <p>
+                Data reflects the most recent USPTO/EPO refresh, which runs automatically every morning.
+              </p>
+
+              <H3>Disconnecting</H3>
+              <p>
+                In Claude go to <strong>Settings → Connectors</strong>, open <strong>Plaz4 IP</strong> and
+                choose <strong>Disconnect</strong> (or remove it). Access tokens are also refused automatically
+                if your Plaz4 IP account is removed from the team.
+              </p>
+
+              <H3>Troubleshooting</H3>
+              <ul className="list-disc pl-5 space-y-1.5">
+                <li>
+                  <strong>&ldquo;Couldn&apos;t register with Plaz4 IP&apos;s sign-in service&rdquo;</strong> — remove
+                  the connector and add it again. If it persists, contact your Plaz4 IP administrator.
+                </li>
+                <li>
+                  <strong>Approve button is disabled</strong> — the email you signed in with isn&apos;t a Plaz4 IP
+                  team member. Ask an admin to invite you (see Settings &amp; Team).
+                </li>
+                <li>
+                  <strong>Claude says a patent can&apos;t be found</strong> — it may not be in the portfolio yet.
+                  Add it from <strong>Add Patent</strong>, or from the parent&apos;s Continuity tab for very new
+                  continuations that USPTO hasn&apos;t published a record for yet.
+                </li>
+              </ul>
+
+              <H3>Claude Code (developers)</H3>
+              <p>
+                Add the server, then run <KBD>/mcp</KBD> in Claude Code and choose <strong>Authenticate</strong>{' '}
+                to complete the same browser sign-in:
+              </p>
+              <pre className="mono text-xs p-3 rounded overflow-x-auto"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+{`claude mcp add --transport http plaz4-ip ${mcpUrl}`}
+              </pre>
             </Section>
 
           </div>
