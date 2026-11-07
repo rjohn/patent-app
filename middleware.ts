@@ -1,11 +1,13 @@
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextRequest, NextResponse } from 'next/server'
+import { safeNext } from '@/lib/safe-next'
 
 const PUBLIC_PATHS = ['/login', '/invite', '/reset-password']
 // /api/cron/* has no session cookie (Vercel Cron sends a CRON_SECRET bearer token instead) —
 // exempt from the session gate here, but each route still checks that token itself.
-// /api/mcp likewise uses its own MCP_API_KEY bearer token (Claude clients have no session cookie).
-const PUBLIC_API   = ['/api/auth', '/api/team/invite/accept', '/api/cron', '/api/mcp']
+// /api/mcp likewise authenticates itself (Supabase OAuth token or MCP_API_KEY; Claude clients have
+// no session cookie). /.well-known serves the public OAuth protected-resource metadata for it.
+const PUBLIC_API   = ['/api/auth', '/api/team/invite/accept', '/api/cron', '/api/mcp', '/.well-known']
 
 export async function middleware(req: NextRequest) {
   const res      = NextResponse.next()
@@ -26,13 +28,15 @@ export async function middleware(req: NextRequest) {
   if (!session && !isPublic) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
-    url.searchParams.set('next', pathname)
+    url.search   = ''
+    // Keep the query string — e.g. /oauth/consent?authorization_id=… must survive sign-in
+    url.searchParams.set('next', pathname + req.nextUrl.search)
     return NextResponse.redirect(url)
   }
 
-  // Redirect authenticated users away from login
+  // Redirect authenticated users away from login (back to where they were headed, if given)
   if (session && pathname === '/login') {
-    return NextResponse.redirect(new URL('/dashboard', req.url))
+    return NextResponse.redirect(new URL(safeNext(req.nextUrl.searchParams.get('next')), req.url))
   }
 
   return res

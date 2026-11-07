@@ -152,7 +152,7 @@ app/
     settings/activity-subscription/  # GET, PATCH: current user's digest subscription
     cron/refresh-patents/     # GET (CRON_SECRET-guarded): daily bulk USPTO/EPO refresh
     cron/activity-digest/     # GET (CRON_SECRET-guarded): sends due weekly/monthly digest emails
-    mcp/                      # GET/POST/DELETE (MCP_API_KEY-guarded): read-only MCP server for Claude
+    mcp/                      # GET/POST/DELETE (Supabase OAuth token or MCP_API_KEY): read-only MCP server for Claude
 
 components/
   Sidebar.tsx         # Navigation sidebar with "Plaz4 IP" branding, p4-icon.png
@@ -166,6 +166,7 @@ lib/
   activity.ts         # buildActivitySummary()/buildEmailHtml() — shared by /api/activity and the digest cron
   email.ts            # sendEmail() — thin Resend wrapper
   mcp-server.ts       # createMcpServer() — MCP tool definitions served by /api/mcp
+  mcp-auth.ts         # authenticateMcp() — Supabase OAuth token / MCP_API_KEY check for /api/mcp
   patent-search.ts    # patentSearchConditions() — free-text patent search, shared by /api/patents and MCP
   claims-text.ts      # claimsToText() — flattens claimsJson into Patent.claimsText (synced in lib/prisma.ts)
 
@@ -395,7 +396,15 @@ Users manage their own subscription from **Settings → Portfolio Activity Diges
 
 `/api/mcp` is a stateless Streamable-HTTP MCP endpoint (`@modelcontextprotocol/sdk`, `WebStandardStreamableHTTPServerTransport`) that lets Claude query the portfolio. Read-only tools, defined in `lib/mcp-server.ts`: `portfolio_overview`, `search_patents`, `get_patent`, `get_claims`, `get_prosecution_history`, `list_families`, `get_family`, `upcoming_fees`, `recent_activity`, `list_watchlists`, `get_watchlist`. Patent tools accept an internal id or any patent / application / EP / publication number format.
 
-Auth is a single shared `MCP_API_KEY` bearer token (no per-user OAuth yet, so it can't be added as a claude.ai custom connector). Connect from Claude Code:
+Auth (`lib/mcp-auth.ts`) accepts either credential:
+- **Supabase OAuth 2.1 access token** — for claude.ai / Claude Desktop custom connectors. `/api/mcp` returns 401 with `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/api/mcp"`; that metadata (`app/.well-known/oauth-protected-resource/[[...path]]/route.ts`) points to `${NEXT_PUBLIC_SUPABASE_URL}/auth/v1` as the authorization server. Supabase handles dynamic client registration, tokens and refresh; the user approves on `/oauth/consent` (`app/oauth/consent/page.tsx`). Tokens are verified with `supabase.auth.getClaims()` and the `sub`/email must match a `User` row (team member).
+- **`MCP_API_KEY`** shared bearer — fallback for Claude Code / `mcp-remote` configs.
+
+Supabase dashboard setup: Authentication → OAuth Server → enabled, dynamic client registration on, authorization path `/oauth/consent`. Prefer asymmetric JWT signing keys so `getClaims()` verifies locally against JWKS.
+
+Add in claude.ai: Settings → Connectors → Add custom connector → `https://<app-url>/api/mcp`.
+
+Connect from Claude Code with the shared key:
 
 ```bash
 claude mcp add --transport http plaz4-ip https://<app-url>/api/mcp --header "Authorization: Bearer $MCP_API_KEY"
@@ -406,6 +415,5 @@ claude mcp add --transport http plaz4-ip https://<app-url>/api/mcp --header "Aut
 ## Known Issues / TODOs
 
 - Supabase Auth not wired to invite flow (user record created but no auth credential)
-- MCP endpoint uses one shared key — add OAuth (Supabase) for per-user access and claude.ai connector support
 - Documents tab populated on first load only if patent has been refreshed after document fetching was added; otherwise falls back to live USPTO fetch
 - `FamilyTree.tsx` — `nodeCount` must be declared before `innerH` (already fixed)

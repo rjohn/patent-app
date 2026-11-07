@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import Image from 'next/image'
 import { Loader2, Mail, CheckCircle2, ArrowLeft } from 'lucide-react'
+import { safeNext } from '@/lib/safe-next'
 
 type Mode = 'signin' | 'forgot' | 'sent'
 
@@ -20,9 +21,11 @@ export default function LoginPage() {
     setError(null)
     setLoading(true)
 
+    // Carry ?next= (set by middleware) through the magic link so e.g. the OAuth consent page resumes
+    const next = safeNext(new URLSearchParams(window.location.search).get('next'))
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/api/auth/callback` },
+      options: { emailRedirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(next)}` },
     })
 
     setLoading(false)

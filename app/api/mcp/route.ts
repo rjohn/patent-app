@@ -1,28 +1,25 @@
-import { createHash, timingSafeEqual } from 'crypto'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { createMcpServer } from '@/lib/mcp-server'
+import { authenticateMcp, resourceMetadataUrl } from '@/lib/mcp-auth'
 
 // Remote MCP endpoint (Streamable HTTP, stateless) — lets Claude query the portfolio.
-// Exempt from the session middleware; guarded by `Authorization: Bearer $MCP_API_KEY`.
+// Exempt from the session middleware. Accepts either a Supabase OAuth access token
+// (claude.ai / Desktop custom connector) or `Authorization: Bearer $MCP_API_KEY`.
+// See lib/mcp-auth.ts and /.well-known/oauth-protected-resource.
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-function authorized(req: Request): boolean {
-  const key = process.env.MCP_API_KEY
-  if (!key) return false // fail closed if unset
-  const given = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
-  const a = createHash('sha256').update(given).digest()
-  const b = createHash('sha256').update(key).digest()
-  return timingSafeEqual(a, b)
-}
-
 async function handle(req: Request): Promise<Response> {
-  if (!authorized(req)) {
+  const principal = await authenticateMcp(req)
+  if (!principal) {
     return Response.json(
       { jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null },
-      { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } },
+      {
+        status: 401,
+        headers: { 'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl(req)}"` },
+      },
     )
   }
   const server    = createMcpServer()
