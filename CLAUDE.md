@@ -347,8 +347,7 @@ const proxyUrl = `/api/patents/${patentId}/documents/${doc.documentIdentifier}/d
 1. Settings page → Invite Member → creates `Invite` record via `POST /api/team/invite` → returns `inviteUrl`
 2. Invite link: `${NEXT_PUBLIC_APP_URL}/invite/{token}`
 3. `/invite/[token]` page — standalone (no sidebar), validates token via `GET /api/team/invite/accept?token=...`
-4. On submit → `POST /api/team/invite/accept` creates `User` record + marks invite `ACCEPTED`
-5. **Pending:** Supabase Auth credential creation not yet wired — currently creates DB user only
+4. On submit → `POST /api/team/invite/accept` finds/creates the Supabase Auth user (`inviteUserByEmail` at invite time, `admin.createUser` fallback), creates the `User` record with `supabaseId`, marks invite `ACCEPTED`, then sends a magic sign-in link
 
 ---
 
@@ -414,6 +413,5 @@ claude mcp add --transport http plaz4-ip https://<app-url>/api/mcp --header "Aut
 
 ## Known Issues / TODOs
 
-- Supabase Auth not wired to invite flow (user record created but no auth credential)
 - Documents tab populated on first load only if patent has been refreshed after document fetching was added; otherwise falls back to live USPTO fetch
 - `FamilyTree.tsx` — `nodeCount` must be declared before `innerH` (already fixed)
