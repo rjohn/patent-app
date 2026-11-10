@@ -161,6 +161,7 @@ components/
 lib/
   prisma.ts           # Prisma client singleton
   uspto-api.ts        # calculateMaintenanceFees() and USPTO helpers
+  fee-sync.ts         # syncUsFeePayments() — marks US maintenance fees PAID from USPTO M<e>55<n> events, dedupes rows; run on every refresh
   pdf-builder.ts      # Pure-TypeScript PDF generation (no npm packages)
   patent-refresh.ts   # USPTO/EPO refresh logic; refreshAllPatents() used by /manage and the daily cron
   activity.ts         # buildActivitySummary()/buildEmailHtml() — shared by /api/activity and the digest cron

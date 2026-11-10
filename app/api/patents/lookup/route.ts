@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { calculateMaintenanceFees, odpHeaders, normalizePatentNumber, slimJson } from '@/lib/uspto-api'
+import { syncUsFeePayments, eventsFromRaw } from '@/lib/fee-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -262,6 +263,8 @@ export async function POST(req: NextRequest) {
           })
         )
       )
+      // Mark fees already paid at USPTO (otherwise old patents show long-paid fees as overdue)
+      await syncUsFeePayments(saved.id, eventsFromRaw(p.raw))
     }
 
     return NextResponse.json({ success: true, patent: saved }, { status: 201 })

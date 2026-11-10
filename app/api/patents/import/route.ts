@@ -93,25 +93,20 @@ export async function POST(req: NextRequest) {
           savedPatent.grantDate &&
           savedPatent.type === 'UTILITY'
         ) {
+          // Create only fee types this patent doesn't have yet (re-imports must not duplicate rows)
           const fees = calculateMaintenanceFees(savedPatent.grantDate)
-          for (const fee of fees) {
-            await prisma.maintenanceFee.upsert({
-              where: {
-                // Use a compound unique — in production add @unique to schema
-                id: `${savedPatent.id}-${fee.feeType}`,
-              },
-              create: {
+          const existingTypes = new Set(
+            (await prisma.maintenanceFee.findMany({ where: { patentId: savedPatent.id }, select: { feeType: true } }))
+              .map(f => f.feeType as string)
+          )
+          for (const fee of fees.filter(f => !existingTypes.has(f.feeType))) {
+            await prisma.maintenanceFee.create({
+              data: {
                 patentId: savedPatent.id,
                 feeType: fee.feeType as any,
                 dueDate: fee.dueDate,
                 gracePeriodEnd: fee.gracePeriodEnd,
               },
-              update: {
-                dueDate: fee.dueDate,
-                gracePeriodEnd: fee.gracePeriodEnd,
-              },
-            }).catch(() => {
-              // Skip duplicate fee errors
             })
           }
         }
