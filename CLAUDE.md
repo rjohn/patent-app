@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Full-stack patent portfolio management application. Tracks US and EP patents, applications, patent families, maintenance fees/deadlines, continuation relationships, and USPTO file wrapper documents.
+Full-stack patent portfolio management application. Tracks US and EP patents, applications, patent families, maintenance fees/deadlines, continuation relationships, USPTO file wrapper documents, and US trademarks.
 
 **Local path:** `/Users/rjohn/dev/patent-app`  
 **Deploy:** Vercel  
@@ -86,6 +86,7 @@ CRON_SECRET=                # Shared secret for /api/cron/* routes; Vercel Cron 
 RESEND_API_KEY=             # Resend API key, used by lib/email.ts for activity digest emails
 EMAIL_FROM=                 # Verified sender, e.g. "Plaz4 IP <digest@mail.yourdomain.com>"
 MCP_API_KEY=                # Bearer token for /api/mcp (Claude MCP connector). Endpoint returns 401 for everyone if unset
+TRADEMARK_OWNER_PATTERN=    # Optional regex (case-insensitive) for owner names whose new trademark filings are auto-added. Default: plasmology4
 ```
 
 ---
@@ -118,6 +119,7 @@ app/
   applications/       # Tracked applications (continuations being monitored)
   deadlines/          # Upcoming maintenance fee deadlines
   reports/            # PDF report generation
+  trademarks/         # Trademark list, add/ (by serial), [id]/ detail (Overview, Goods & Services, Timeline, Documents, Proceedings)
   settings/           # Team management (members, roles, invites)
   invite/[token]/     # Standalone invite acceptance page (no sidebar)
 
@@ -142,6 +144,9 @@ app/
     fees/                     # GET all fees
     fees/[id]/                # PATCH (update status/paidDate)
     deadlines/                # GET upcoming deadlines
+    trademarks/               # GET (list+filter, with nextDeadline), POST (add by serial)
+    trademarks/[id]/          # GET (with computed deadlines), PATCH (notes/docket/markText), DELETE
+    trademarks/refresh/       # POST: run the daily trademark job now ("Check USPTO now")
     reports/generate/         # POST: generate PDF report
     team/                     # GET: members + pending invites
     team/invite/              # POST: create invite (7-day expiry)
@@ -151,6 +156,7 @@ app/
     activity/                 # GET: portfolio activity summary (?period=, ?format=html for digest)
     settings/activity-subscription/  # GET, PATCH: current user's digest subscription
     cron/refresh-patents/     # GET (CRON_SECRET-guarded): daily bulk USPTO/EPO refresh
+    cron/refresh-trademarks/  # GET (CRON_SECRET-guarded): daily trademark bulk-file update + proceedings check
     cron/activity-digest/     # GET (CRON_SECRET-guarded): sends due weekly/monthly digest emails
     mcp/                      # GET/POST/DELETE (Supabase OAuth token or MCP_API_KEY): read-only MCP server for Claude
 
@@ -170,6 +176,14 @@ lib/
   mcp-auth.ts         # authenticateMcp() — Supabase OAuth token / MCP_API_KEY check for /api/mcp
   patent-search.ts    # patentSearchConditions() — free-text patent search, shared by /api/patents and MCP
   claims-text.ts      # claimsToText() — flattens claimsJson into Patent.claimsText (synced in lib/prisma.ts)
+  trademark-bulk.ts   # listBulkFiles()/scanBulkZip() — streams USPTO trademark bulk zips, returns matching <case-file> blocks
+  trademarks.ts       # parseCaseFile(), recordToColumns(), trademarkDeadlines(), upsertTrademarkRecord()
+  trademark-refresh.ts # refreshTrademarks() — daily job used by the cron and /api/trademarks/refresh
+  trademark-status-codes.ts # USPTO status code table (generated from TRTDXFAP docs)
+
+scripts/
+  trademark-scan.ts   # One-time backfill: scans annual + daily bulk files → JSONL of matching case files
+  trademark-import.ts # Loads trademark-scan output into the Trademark table (--list to preview)
 
 public/
   p4-icon.png         # App icon (white background)
@@ -322,6 +336,31 @@ const proxyUrl = `/api/patents/${patentId}/documents/${doc.documentIdentifier}/d
 
 ---
 
+## USPTO Trademark Data (bulk files, not TSDR)
+
+The TSDR API (`tsdrapi.uspto.gov`) needs a separate TSDR key that our ODP key doesn't satisfy (it returns 404 for every path, same as an invalid key). Instead, trademarks come from **ODP bulk data**, which the existing `USPTO_API_KEY` can download:
+
+- `TRTDXFAP` — daily zip (~25–55 MB zipped, ~460 MB XML): a full `<case-file>` for every mark with activity that day. `GET https://api.uspto.gov/api/v1/datasets/products/TRTDXFAP?includeFiles=true&fileDataFromDate=…&fileDataToDate=…`
+- `TRTYRAP` — annual backfile (~94 files, ~11 GB zipped), every mark through Dec 31 of the prior year
+- Each case-file has header (status code/dates, mark text, attorney), statements (`GS` + 3-digit class = goods/services), event statements (timeline), classifications, owners (highest `party-type` = current owner), correspondent. **No documents** — the UI links to TSDR for those.
+- Docs: `Trademark-Applications-Documentation-v2.3` and `Table1TrademarkStatusCodes` in the TRTDXFAP file list.
+
+Files are streamed with `fflate` and split on `</case-file>`; never load a whole file into memory.
+
+**Daily job** (`refreshTrademarks()`): processes daily files after `Setting['trademarks.lastDailyFileDate']` (max 3 per run), applies records for tracked serials, auto-adds new filings whose current owner matches `TRADEMARK_OWNER_PATTERN` (source `AUTO`), then queries `GET /api/v1/trademark/decision-proceeding/search?q=serialNumber:<sn>` (ODP; returns 404 for "no records") into `Trademark.proceedings`. Records with an older `transaction-date` than `dataAsOf` are ignored.
+
+**Manually added marks** (`/trademarks/add`) have no data until they next appear in a daily file — or run the backfill for that serial:
+
+```bash
+npx tsx --env-file=.env.local scripts/trademark-scan.ts --out tm.jsonl --serial 85943865   # add --daily-only to skip the 11 GB annual set
+npx tsx --env-file=.env.local scripts/trademark-import.ts --in tm.jsonl --list            # preview
+npx tsx --env-file=.env.local scripts/trademark-import.ts --in tm.jsonl --serial 85943865
+```
+
+**Deadlines** (`trademarkDeadlines()`): Section 8 (years 5–6) and Section 8 & 9 renewals (years 9–10, every 10 years), 6-month grace. "Filed" is inferred from header flags, `renewal-date`, and timeline events within the window.
+
+---
+
 ## EPO OPS API
 
 **Auth:** OAuth2 client credentials → `https://ops.epo.org/3.2/auth/accesstoken`  
@@ -339,6 +378,7 @@ const proxyUrl = `/api/patents/${patentId}/documents/${doc.documentIdentifier}/d
 - `Patent.source` — `PatentSource` enum: `PORTFOLIO` (manually added), `CONTINUATION` (tracked from continuity tab)
 - `Patent.rawJsonData` — `Json?` field storing slimmed USPTO response + documentBag (see above)
 - `Invite` model requires `npm run db:push` if not yet applied — has `token`, `status (InviteStatus)`, `expiresAt`
+- `Trademark` — keyed by `serialNumber` (8 digits). Columns are denormalized from `rawJsonData` (the full normalized case-file record) by `recordToColumns()`. `status` (`TrademarkStatus`) is derived from the USPTO status code; `source` (`TrademarkSource`: `MANUAL`, `IMPORTED`, `AUTO`)
 - `ActivitySubscription` — one per `User` (`@@unique userId`), drives the portfolio activity digest email. `frequency (DigestFrequency: WEEKLY|MONTHLY)`, `onlyIfActivity` (skip sending if nothing happened that period), `lastSentAt` (advances every due period regardless of whether an email was actually sent)
 
 ---
@@ -383,9 +423,10 @@ The `@react-pdf/renderer` package is also installed but PDFBuilder is the primar
 
 ## Scheduled Jobs (Vercel Cron)
 
-`vercel.json` defines two daily cron jobs, both guarded by `CRON_SECRET` (checked against the `Authorization: Bearer` header Vercel sends automatically for its own cron invocations when that env var is set):
+`vercel.json` defines three daily cron jobs, both guarded by `CRON_SECRET` (checked against the `Authorization: Bearer` header Vercel sends automatically for its own cron invocations when that env var is set):
 
 - **`GET /api/cron/refresh-patents`** — `10:00 UTC` (~6am Eastern, drifts ±1hr with DST since Vercel Cron schedules are fixed-UTC). Calls `refreshAllPatents()` from `lib/patent-refresh.ts` — the same bulk-refresh logic the `/manage` page's button triggers via `POST /api/patents/refresh`.
+- **`GET /api/cron/refresh-trademarks`** — `10:15 UTC`. Runs `refreshTrademarks()` (`lib/trademark-refresh.ts`); see *USPTO Trademark Data* above.
 - **`GET /api/cron/activity-digest`** — `10:30 UTC`, 30 min after the refresh so digests reflect same-morning data. Walks every enabled `ActivitySubscription`, and for each one whose weekly/monthly window has elapsed, builds a summary via `buildActivitySummary()` (`lib/activity.ts` — shared with `/api/activity` and the in-app Activity page) and emails it through `lib/email.ts` (Resend) if there was activity or `onlyIfActivity` is off. `lastSentAt` always advances on a due check, whether or not an email was actually sent, so cadence stays fixed to the chosen frequency.
 
 Users manage their own subscription from **Settings → Portfolio Activity Digest** (`GET`/`PATCH /api/settings/activity-subscription`).

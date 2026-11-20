@@ -470,3 +470,56 @@ enum InvoiceParseStatus {
   FAILED
   PARTIAL
 }
+
+// ─── Trademarks ───────────────────────────────────────────────────────────────
+// Populated from USPTO trademark bulk data (TRTDXFAP daily / TRTYRAP annual) —
+// see lib/trademark-bulk.ts and lib/trademarks.ts. rawJsonData holds the full
+// normalized <case-file> record (owners, goods/services, events, classes, flags).
+
+model Trademark {
+  id                  String          @id @default(cuid())
+  serialNumber        String          @unique
+  registrationNumber  String?
+  markText            String?
+  status              TrademarkStatus @default(UNKNOWN)
+  statusCode          String?
+  statusDescription   String?
+  statusDate          DateTime?
+  filingDate          DateTime?
+  publicationDate     DateTime?
+  registrationDate    DateTime?
+  renewalDate         DateTime?
+  abandonmentDate     DateTime?
+  cancellationDate    DateTime?
+  owner               String?
+  attorney            String?
+  docketNumber        String?
+  internationalClasses String[]
+  source              TrademarkSource @default(MANUAL)
+  notes               String?         @db.Text
+
+  rawJsonData         Json?           // normalized case-file record
+  proceedings         Json?           // TTAB / expungement / reexam records from ODP decision-proceeding search
+  dataAsOf            DateTime?       // <transaction-date> of the bulk record last applied
+  lastCheckedAt       DateTime?
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@map("trademarks")
+}
+
+enum TrademarkStatus {
+  PENDING
+  REGISTERED
+  ABANDONED
+  CANCELLED
+  EXPIRED
+  UNKNOWN
+}
+
+enum TrademarkSource {
+  MANUAL     // added by serial number on /trademarks/add
+  IMPORTED   // one-time backfill import script
+  AUTO       // discovered by the daily cron (new filing in the owner's name)
+}
